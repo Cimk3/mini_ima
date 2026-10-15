@@ -1,65 +1,140 @@
-# Mini-ima CLI
+# Mini-ima
 
-本地优先的文档知识库原型，已实现任务书的阶段一和阶段二：TXT/Markdown 导入、结构分块、SQLite 持久化、Embedding API、语义搜索、带来源引用的 RAG 问答，以及默认启用的 C++20 精确检索引擎。
+Mini-ima 是一个本地优先的个人知识管理工具：把 TXT 和 Markdown 文档整理成知识库，通过语义搜索找到资料，再围绕资料进行带来源引用的问答。
 
-桌面版在独立的 `desktop` 目录，Windows 启动程序为 `desktop/dist/Miniima/Miniima.exe`，使用说明见 [desktop/README.md](desktop/README.md)。桌面版与 CLI 共用数据和配置，原有命令继续可用。
+项目同时提供 **Windows 桌面应用**和 **CLI 命令行**，两者共用 Python/C++ 核心、SQLite 数据和模型配置。桌面端使用 Tauri 2、React、TypeScript 和 Vite，默认检索引擎为 C++20 精确向量检索。
 
-## 在当前 Windows 工作区运行
+## 功能
 
-项目的 `.venv` 已配置 Python 3.12 和依赖，直接在项目目录执行：
+| 功能 | 说明 |
+| --- | --- |
+| 知识库管理 | 创建多个知识库，导入 TXT、MD、Markdown 文件，同一知识库内自动跳过重复文件。 |
+| 语义搜索 | 按文档含义检索，展示匹配片段、文件名、标题路径和行号。 |
+| 带引用问答 | 从知识库检索证据，校验本轮引用，保存回答及引用片段快照。 |
+| 持久多轮对话 | 新建对话、连续追问、查看历史、失败重试，重启后恢复已保存消息。 |
+| 多对话窗口 | 顶部标签切换不同对话，各自保留草稿和联网搜索开关，恢复上次打开的窗口。 |
+| 联网搜索 | 可选的网页摘要检索，无需额外搜索 Key，回答中保留网页链接和摘要。 |
+| 回收站 | 知识库和对话可恢复删除，支持恢复、彻底删除和清空，与 CLI 互通。 |
+| 桌面工作区 | 左右侧栏可收起，支持窄窗口布局、浅色主题和 GitHub 深色配色。 |
+| 模型设置 | 问答和向量服务分别设置地址、模型及 API Key，并分别测试连接。 |
+
+桌面端支持多轮对话；CLI 的 `ask` 保持单次问答，其成功记录也能在桌面历史中查看。每个对话绑定一个知识库，切换知识库会进入新的空白对话。
+
+## 获取与运行
+
+本仓库提供源码，**不包含虚拟环境、依赖、打包程序或个人数据**。首次克隆后，需要按下方步骤安装和构建；`desktop/dist/Miniima/` 是本地构建后的产物目录。
+
+如果已有构建好的应用目录，保留以下两个程序在同一目录，双击 `Miniima.exe` 即可运行：
+
+```text
+Miniima/
+├── Miniima.exe
+├── miniima-backend.exe
+└── README.md
+```
+
+打包版面向 Windows x64，运行时需要系统安装 WebView2 Runtime，无需另装 Python、Node.js 或 Rust。首次启动会引导填写模型配置；连接测试会发起真实 API 请求。
+
+### 从源码准备环境
+
+Windows 开发环境需要：
+
+- Git、Python 3.12。
+- Visual Studio 2022 的“使用 C++ 的桌面开发”组件及 Windows SDK，用于编译 C++ 扩展。
+- 开发桌面版还需要 Node.js 20.19+、npm、Rust 的 MSVC 工具链和 WebView2 Runtime。
+
+以下命令均在 PowerShell 中执行：
 
 ```powershell
+git clone https://github.com/Cimk3/mini_ima.git
+cd mini_ima
+
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+$env:CMAKE_GENERATOR = "Visual Studio 17 2022"
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+
 .\miniima.cmd --help
 .\miniima.cmd init
+```
+
+`init` 可以在尚未填写 Key 时完成初始化。`miniima.cmd` 使用项目根目录的 `.venv`，因此无需手动激活虚拟环境；也可使用 `.\.venv\Scripts\miniima.exe`。
+
+### 启动桌面开发版
+
+完成上面的环境准备后，在项目根目录创建独立的桌面 Python 环境：
+
+```powershell
+.\.venv\Scripts\python.exe -m venv --without-pip desktop\.venv
+.\.venv\Scripts\python.exe -m pip --python desktop\.venv\Scripts\python.exe install pip pyinstaller pytest scikit-build-core pybind11 cmake ninja
+
+cd desktop
+npm.cmd ci
+npm.cmd run desktop:dev
+```
+
+`desktop:dev` 会构建共享核心和后台程序，再启动真正的 Tauri 桌面窗口。首次运行需要下载依赖并编译；桌面构建不会修改 CLI 的虚拟环境。
+
+在 `desktop` 目录执行完整打包：
+
+```powershell
+npm.cmd run desktop:build
+```
+
+完成后打开 `desktop/dist/Miniima/Miniima.exe`。发布版界面资源随应用打包，无需启动网页服务器。更多开发、打包和验收说明见 [桌面版说明](desktop/README.md)。
+
+## 桌面版使用
+
+1. 打开“模型与设置”，分别填写问答服务和向量服务的 Key，核对服务地址、模型和维度，保存并测试。
+2. 新建知识库，使用原生文件选择框导入 TXT 或 Markdown，等待处理完成；批量导入会显示进度、重复跳过和失败原因。
+3. 在“全局搜索”中检索资料，或点击“新建对话”围绕当前知识库提问。
+4. 点击回答的来源引用，在右侧查看原文片段和位置；网页来源可以在默认浏览器中打开。
+5. 从左侧历史恢复对话，使用顶部加号打开另一个对话窗口。关闭标签只关闭视图，已保存的对话仍保留在历史中。
+6. 需要网页资料时开启输入区的“联网搜索”；不用时保持关闭。通过刷新入口读取 CLI 刚导入的数据。
+
+新输入的 API Key 默认可见，可通过眼睛按钮隐藏；已有 Key 只显示配置状态，留空保存会保留原值。删除知识库或对话会移入回收站，彻底删除和清空会再次要求确认。
+
+## 模型与 API 配置
+
+项目提供以下预设，实际可用模型与地址以你的服务账号为准：
+
+| 用途 | 项目预设 |
+| --- | --- |
+| 问答 | DeepSeek，地址 `https://api.deepseek.com`，模型 `deepseek-flash`。 |
+| 向量 | `qwen3.7-text-embedding`，地址 `https://dashscope.aliyuncs.com/compatible-mode/v1`，1024 维，批次上限 20。 |
+
+问答和向量通常使用不同的 Key。项目支持 OpenAI 兼容接口，可以在桌面设置或 CLI 中修改地址、模型和向量维度。地址必须与 Key 所属服务匹配。
+
+在项目根目录通过 CLI 交互输入并测试：
+
+```powershell
+# 输入问答 Key，然后测试问答接口
 .\miniima.cmd config set --api-key
 .\miniima.cmd config test --chat
-```
 
-`--api-key` 交互输入默认显示字符，不接受直接跟在命令后的 Key 参数。需要隐藏时加 `--hide-key`。`config test` 会实际调用配置的模型；缺少密钥或调用失败时返回非零退出码。自动化验证使用 Mock，不代表真实 API 连通。
-
-默认 Chat API 为 `https://api.deepseek.com`，模型为 `deepseek-flash`，依据 [DeepSeek 官方快速开始](https://api-docs.deepseek.com/) 的当前模型名称。可按账号实际可用模型更改：
-
-```powershell
-.\miniima.cmd config set --base-url "https://api.deepseek.com" --chat-model "deepseek-flash"
-.\miniima.cmd config show
-```
-
-当前 DeepSeek Flash / V4 模型的问答请求显式关闭 thinking，避免思考过程占满回答预算；参见[官方模式说明](https://api-docs.deepseek.com/guides/thinking_mode/)。其他兼容服务不会收到这个专用参数。
-
-## 配置 Qwen3.7 向量 API
-
-**DeepSeek 负责问答，`qwen3.7-text-embedding` 负责向量。** 一条命令自动设置模型、地址、维度和批次大小，只需输入向量服务的 API Key，并测试连接：
-
-```powershell
+# 应用 Qwen 向量预设，输入独立的向量 Key，然后测试
 .\miniima.cmd config qwen --test
-```
 
-Key 输入时默认可见；输入完成后不会再打印完整 Key，`config show` 继续隐藏。需要重新测试时使用：
-
-```powershell
-.\miniima.cmd config test --embedding
+# 查看配置（Key 会被隐藏），或重新测试两个接口
+.\miniima.cmd config show
 .\miniima.cmd config test --chat --embedding
 ```
 
-封装默认使用百炼北京公共兼容地址 `https://dashscope.aliyuncs.com/compatible-mode/v1`，显式请求 1024 维，批次上限 20。模型规格见[官方同步向量接口文档](https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api)。百炼目前推荐业务空间专属域名，公共域名的迁移说明见[官方兼容接口文档](https://help.aliyun.com/zh/model-studio/embedding-interfaces-compatible-with-openai/)。
+`--api-key` 用于交互输入，不要把 Key 直接写在命令后面。输入默认可见，需要隐藏时使用 `config set --api-key --hide-key` 或 `config qwen --hide-key --test`。测试失败会显示原因并返回非零退出码。
 
-如果你的 Key 来自千问 AI 平台，使用该平台[官方提供的地址](https://platform.qianwenai.com/docs/developer-guides/embeddings/embedding)：
-
-```powershell
-.\miniima.cmd config qwen --base-url "https://maas.qianwenaiapi.com/compatible-mode/v1" --test
-```
-
-其他地域、业务空间专属域名或兼容服务也可通过 `--base-url` 指定。地址必须与 Key 所属服务相匹配，程序不会自动在不同服务之间尝试密钥。
-
-可通过 `--dimension` 指定模型支持的 256、512、768、1024、1536、2048、2560 维之一；更改已有知识库的模型或维度后，应新建知识库重新导入：
+修改问答模型示例：
 
 ```powershell
-.\miniima.cmd config qwen --dimension 2560 --test
+.\miniima.cmd config set --base-url "https://api.deepseek.com" --chat-model "deepseek-flash"
+.\miniima.cmd config set --help
+.\miniima.cmd config qwen --help
 ```
 
-原来的 `config set --embedding-api-key` 命令也可使用：在旧配置尚未填写向量模型时，它会自动补齐 Qwen 默认设置。手工配置其他模型的 `--embedding-base-url`、`--embedding-model`、`--embedding-dimension` 参数仍受支持。Chat 与 Embedding 地址不同时，必须独立输入向量 Key，程序不会自动把 DeepSeek Key 发给其他服务。
+知识库会绑定向量服务地址、模型和维度；改变这些配置后，旧知识库会拒绝不兼容的导入和查询。可以恢复原配置，或创建新知识库重新导入。修改问答模型不影响已有向量。
 
-## 导入、搜索和问答
+## CLI 使用
+
+以下示例使用仓库自带的 [网络知识示例文档](examples/network.md)，运行前需完成向量和问答配置：
 
 ```powershell
 .\miniima.cmd kb create "计算机网络"
@@ -71,90 +146,90 @@ Key 输入时默认可见；输入完成后不会再打印完整 Key，`config s
 .\miniima.cmd doctor
 ```
 
-命令完成后可以关闭终端，再次执行 `search` / `ask`。所有文档、Chunk、float32 向量和问答记录均保存在 SQLite；每次搜索从数据库重建内存索引。来源显示原始文件名、行号、Markdown 标题路径和文档 UUID。文档在同一知识库内按 SHA-256 去重；不同知识库可导入相同文件。
+`doctor` 检查本地数据库、检索引擎和配置完整性，不会测试真实 API 连通性。Key 未配置时会提示缺失，使用 `config test` 才会调用模型。
 
-知识库绑定向量服务地址、模型和维度。更改这些配置后，旧知识库会拒绝不兼容的导入和查询；恢复旧配置即可继续使用，或创建新知识库重新导入。修改 Chat 模型不影响已有向量。
-
-删除知识库会要求确认并移入回收站，`--yes` 可跳过交互。原文、向量和对话保留，可恢复：
+知识库与回收站操作：
 
 ```powershell
 .\miniima.cmd kb delete "计算机网络"
 .\miniima.cmd trash list
-.\miniima.cmd trash restore kb <知识库UUID>
-.\miniima.cmd trash restore conversation <对话UUID>
-.\miniima.cmd trash purge kb <知识库UUID>
+```
+
+从回收站列表取得对应 UUID，再恢复或彻底删除。下方变量请替换为实际 ID；`kind` 支持 `kb` 和 `conversation`：
+
+```powershell
+$kbId = "替换为知识库UUID"
+$conversationId = "替换为对话UUID"
+.\miniima.cmd trash restore kb $kbId
+.\miniima.cmd trash restore conversation $conversationId
+.\miniima.cmd trash purge conversation $conversationId
 .\miniima.cmd trash empty
 ```
 
-## 数据与配置
+彻底删除和清空默认要求确认，`--yes` / `-y` 可跳过确认。删除知识库会保留原文、向量和对话；所属知识库已删除时，先恢复知识库。回收站中的知识库仍占用原名称。
 
-默认数据目录为用户目录下的 `.miniima`，包含 `config.json`、`miniima.sqlite3` 和 `originals/`。升级到数据库版本 3 前，SQLite 完整备份保存在 `backups/`。可在初始化前设置独立目录：
-
-```powershell
-$env:MINIIMA_HOME = "D:\MiniimaData"
-.\miniima.cmd init
-```
-
-环境变量优先于配置文件，支持任务书中的 `MINIIMA_API_KEY`、`MINIIMA_BASE_URL`、`MINIIMA_CHAT_MODEL`、`MINIIMA_EMBEDDING_MODEL`、`MINIIMA_EMBEDDING_DIMENSION`，以及独立的 `MINIIMA_EMBEDDING_API_KEY`、`MINIIMA_EMBEDDING_BASE_URL`。完整模板见 [.env.example](.env.example)。`.env` 不会自动加载，请通过环境变量或 `config set` 配置。
-
-`config show` 始终隐藏 Key；`config set` 修改本地文件，环境变量仍有更高优先级。通过 CLI 输入的密钥保存在本机 `config.json`，也可仅使用环境变量避免落盘。请勿分享配置目录；Git 忽略规则排除了环境文件、数据库和本地数据目录。
-
-默认分块约 500 个估算 tokens、重叠 80，优先在标题、段落和句子边界拆分。Token 估算采用 CJK 字符及四个 ASCII 字符片段，不是特定模型的精确 tokenizer。可调节：
-
-```powershell
-.\miniima.cmd config set --chunk-tokens 500 --chunk-overlap 80 --timeout 30 --max-retries 2
-.\miniima.cmd config set --min-score 0.2
-```
-
-问答只使用达到 `min-score` 的资料。阈值需要按实际向量模型调节；证据不足时明确提示。参考资料作为不可信 JSON 数据传入，引用编号必须对应本轮真实 Chunk，否则回答不被采用。问答记录保留来源正文快照；这不等同于对模型每项结论进行事实验证。
-
-## 从源码安装
-
-需要 Python 3.12+ 和 C++20 编译器。Windows 推荐安装 Visual Studio 2022 的“使用 C++ 的桌面开发”组件及 Windows SDK。CMake / pybind11 由构建系统提供；不需要 Docker 或常驻服务器。
-
-```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install --upgrade pip
-$env:CMAKE_GENERATOR = "Visual Studio 17 2022"
-.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
-.\.venv\Scripts\miniima.exe --help
-```
-
-如使用本项目当前已准备好的虚拟环境，修改 C++ 后可以离线重建：
-
-```powershell
-$env:CMAKE_GENERATOR = "Visual Studio 17 2022"
-.\.venv\Scripts\python.exe -m pip install --no-build-isolation --no-deps -e .
-```
-
-NumPy 基准实现保留用于对照或显式切换：
+默认使用 C++ 检索，也可以显式选择 NumPy 对照实现：
 
 ```powershell
 .\miniima.cmd search "TCP" --kb "计算机网络" --engine numpy
-.\miniima.cmd config set --engine cpp
 ```
 
-C++ 扩展缺失时会报错，不会自动更换检索引擎。
+C++ 扩展缺失时会报错，不会静默切换引擎。
 
-## 自动化测试
+## 数据与隐私
 
-Python 测试使用 Mock Provider 和 HTTP MockTransport，不需要 API Key，覆盖多进程 CLI 重启、数据库事务、模型绑定、去重、错误恢复、RAG 引用、SDK 请求路由，以及固定随机种子的 C++ / NumPy 对照。临时测试数据放在专用构建目录：
+桌面版和 CLI 默认共用用户目录下的 `.miniima`，其中包含：
+
+- `config.json`：模型配置和本地保存的 API Key。
+- `miniima.sqlite3`：知识库、文档分块、向量、消息和引用快照。
+- `originals/`：导入文档的原始副本。
+- `backups/`：数据库迁移前通过 SQLite 备份接口生成的完整备份。
+
+也可以在启动前设置独立目录；桌面与 CLI 使用相同的 `MINIIMA_HOME` 才会看到同一份数据：
 
 ```powershell
-New-Item -ItemType Directory -Force .\build | Out-Null
+$env:MINIIMA_HOME = Join-Path $env:LOCALAPPDATA "MiniimaData"
+.\miniima.cmd init
+```
+
+在终端临时设置的变量只传给从该终端启动的应用；双击启动使用系统环境变量。环境变量优先于配置文件，支持的变量见 [.env.example](.env.example)。项目不会自动加载 `.env`。
+
+数据保存在本机，但模型调用需要联网：导入和语义检索会向配置的向量服务发送文本，问答会向配置的问答服务发送问题、检索片段和有限的对话上下文。启用联网搜索时，当前问题的前 1000 个字符会发送给 Bing 或备用 DuckDuckGo 搜索入口；不会向搜索服务发送本地文档、历史对话或模型 Key。该功能使用网页摘要，不读取网页全文；搜索失败时会明确提示。
+
+通过界面或 CLI 保存的 Key 以明文保存在本机 `config.json`，请勿分享数据目录；也可以只通过环境变量提供 Key。仓库忽略了 API 配置、环境文件、个人数据库、原文、备份和构建产物，`.env.example` 中的 Key 留空。备份数据时需要同时保护配置和文档内容。
+
+## 开发与测试
+
+Python 与前端自动化测试使用 Mock API，不需要真实 Key，不代表 DeepSeek 或 Qwen 的真实连接已经通过。真实连接请使用设置页测试按钮或 `config test` 验证。
+
+在项目根目录运行核心测试：
+
+```powershell
 .\.venv\Scripts\python.exe -m pytest -q --basetemp=build/pytest-local
 ```
 
-CTest 可独立验证 C++ 引擎：
+在 `desktop` 目录运行桌面测试：
 
 ```powershell
-.\.venv\Scripts\cmake.exe -S . -B build/cpp-tests -G "Visual Studio 17 2022" -DMINIIMA_BUILD_PYTHON=OFF -DBUILD_TESTING=ON
-.\.venv\Scripts\cmake.exe --build build/cpp-tests --config Release
-.\.venv\Scripts\ctest.exe --test-dir build/cpp-tests -C Release --output-on-failure
+npm.cmd test
+cargo test --manifest-path src-tauri/Cargo.toml
+.\.venv\Scripts\python.exe -m pytest backend/tests -q --basetemp=build/pytest-desktop
 ```
 
-当前桌面、多轮对话与回收站验收见 [desktop/VERIFICATION.md](desktop/VERIFICATION.md)；阶段一、二的早期核心验收保留在 [docs/verification.md](docs/verification.md)，实现结构见 [docs/architecture.md](docs/architecture.md)。
+代码与文档入口：
 
-## 后续阶段
+| 路径 | 内容 |
+| --- | --- |
+| `src/miniima/` | Python 业务核心、CLI、模型适配、SQLite 存储与增量迁移。 |
+| `cpp/` | C++20 精确检索引擎、Python 绑定与 C++ 测试。 |
+| `desktop/` | React 界面、Tauri 宿主、Python IPC 后台和打包脚本。 |
+| [桌面版说明](desktop/README.md) | 交互说明、开发和打包流程。 |
+| [桌面验收记录](desktop/VERIFICATION.md) | 功能验证及真实调用与 Mock 的边界。 |
+| [核心架构](docs/architecture.md) | 核心模块和数据结构说明。 |
+| [早期核心验收](docs/verification.md) | CLI 与检索引擎的阶段验收。 |
 
-桌面版已支持持久多轮对话、历史恢复与知识库/对话回收站；CLI `ask` 仍为单次问答，成功记录可在桌面查看。PDF / DOCX / PPTX / XLSX / CSV 解析、单文档删除、统计、流式输出和完整性能 Benchmark 尚未实现。当前仅支持 TXT / MD / Markdown 文本，不支持 OCR、Agent 或云同步。
+## 当前范围
+
+当前支持 TXT / MD / Markdown。PDF、Office 文档、CSV、OCR、单文档删除、流式回答、云同步及完整性能 Benchmark 尚未实现。窄屏适配用于窗口布局，当前交付平台仍为 Windows x64，未提供手机安装包。
+
+引用校验用于确保来源对应本轮资料，不等同于对模型每项结论进行事实验证；资料不足时仍需结合原文判断。

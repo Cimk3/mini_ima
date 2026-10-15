@@ -4,7 +4,7 @@ Windows x64 本地知识库应用。桌面界面使用 Tauri，Python/C++ 与现
 
 ## 使用
 
-打开 `dist/Miniima`，双击 `Miniima.exe`。请保留同目录的 `miniima-backend.exe`，两者需要一起使用。运行时无需安装 Python、Node 或 Rust；需要系统 WebView2 Runtime，当前开发电脑已具备。
+取得构建好的应用目录后，打开 `dist/Miniima`，双击 `Miniima.exe`。请保留同目录的 `miniima-backend.exe`，两者需要一起使用。运行时无需安装 Python、Node 或 Rust；需要系统 WebView2 Runtime。Git 仓库不包含打包产物，源码安装从[根目录说明](../README.md#从源码准备环境)开始。
 
 默认打开用户目录下的 `.miniima`，也支持 `MINIIMA_HOME`。在 CLI 导入的文档可直接在桌面版使用，桌面版导入的数据也可通过原 `miniima.cmd` 搜索、问答。终端中临时设置的环境变量只会传给从该终端启动的应用；双击启动时使用系统环境变量。
 
@@ -61,13 +61,13 @@ CLI 示例（项目根目录）：
 
 需要 Node.js、Rust MSVC 工具链、Visual Studio C++ 编译工具，以及 Python 3.12。桌面 Python 环境独立于原 CLI `.venv`。
 
-在项目根目录创建桌面环境并安装构建工具：
+先按[根目录说明](../README.md#从源码准备环境)准备 CLI 的 `.venv`，再在项目根目录创建桌面环境并安装构建工具：
 
 ```powershell
 .\.venv\Scripts\python.exe -m venv --without-pip desktop\.venv
 .\.venv\Scripts\python.exe -m pip --python desktop\.venv\Scripts\python.exe install pip pyinstaller pytest scikit-build-core pybind11 cmake ninja
 cd desktop
-npm.cmd install
+npm.cmd ci
 npm.cmd run desktop:dev
 ```
 
