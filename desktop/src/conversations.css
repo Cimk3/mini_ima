@@ -1,0 +1,86 @@
+/* Persistent workspace additions retain the existing lavender design tokens. */
+.sidebar-toggle { margin-right: 4px; }
+.titlebar .brand { padding-left: 4px; gap: 10px; transform: none; }
+.titlebar .brand-mark, .titlebar .brand-mark img { width: 44px; height: 44px; }
+.titlebar .brand strong { font-size: 24px; }
+.titlebar .brand span { font-size: 12px; }
+.theme-toggle { color: var(--accent-text); }
+.titlebar-actions { gap: 12px; }
+.app-shell.sidebar-hidden { grid-template-columns: minmax(0, 1fr); }
+.sidebar-hidden > .sidebar { display: none; }
+.sidebar-hidden > .workspace { grid-column: 1; }
+.sidebar { padding-top: 16px; }
+.sidebar-new-conversation { flex-shrink: 0; min-height: 42px; margin: 0 6px 12px; justify-content: flex-start; gap: 11px; padding: 10px 15px; color: var(--accent-text); background: var(--accent-soft); border: 1px solid var(--input-line); border-radius: 10px; font-size: 14px; font-weight: 600; }
+.sidebar-new-conversation:hover:not(:disabled) { border-color: var(--accent); }
+.primary-nav { padding-bottom: 10px; }
+.primary-nav button { min-height: 40px; font-size: 15px; }
+.history-heading { min-height: 39px; padding: 10px 14px 6px; font-size: 12px; color: var(--text-muted); }
+.conversation-history { flex: 1; min-height: 86px; overflow: auto; scrollbar-width: thin; padding: 0 4px; }
+.history-row { display: flex; align-items: center; gap: 2px; border-radius: 8px; }
+.history-row.selected { background: var(--accent-soft); }
+.history-row:hover { background: var(--surface-hover); }
+.history-open { flex: 1; min-width: 0; padding: 9px 8px; gap: 9px; justify-content: flex-start; text-align: left; background: transparent; color: var(--text-secondary); }
+.history-open > svg { flex-shrink: 0; color: var(--text-muted); }
+.history-open > span { min-width: 0; }
+.history-open strong, .history-open small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history-open strong { font-size: 13px; font-weight: 500; }
+.history-open small { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+.history-row .history-delete { width: 28px; height: 32px; margin-right: 3px; color: var(--text-muted); }
+.history-delete:hover:not(:disabled) { color: var(--danger); }
+.history-more { width: 100%; justify-content: flex-start; padding: 10px; }
+.sidebar > .sidebar-label { min-height: 42px; padding-top: 10px; font-size: 13px; }
+.library-list { flex: 0 1 auto; min-height: 55px; max-height: 156px; scrollbar-width: thin; }
+.library-item { min-height: 35px; padding-block: 7px; font-size: 13px; }
+.recent-documents { margin-top: 8px; max-height: 205px; overflow: auto; }
+.recent-documents > summary { cursor: pointer; list-style: none; user-select: none; font-size: 12px; min-height: 36px; padding-block: 8px; }
+.recent-documents > summary::-webkit-details-marker { display: none; }
+.recent-documents[open] > summary svg { transform: rotate(180deg); }
+.conversation-tab { min-width: 0; max-width: min(420px, 87%); }
+.conversation-tab strong { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.conversation-tab > svg, .conversation-tab > button { flex-shrink: 0; }
+.conversation-loading { flex: 1; display: flex; align-items: center; justify-content: center; gap: 9px; color: var(--text-muted); font-size: 14px; min-height: 100px; }
+.conversation-messages .chat-turn-answer { margin-bottom: 28px; }
+.conversation-messages .chat-turn-answer:last-child { margin-bottom: 0; }
+.saved-answer-note { margin-left: auto; font-size: 11px; color: var(--text-muted); }
+.turn-pending { display: flex; align-items: center; gap: 9px; margin: 12px 0 24px 58px; color: var(--text-muted); font-size: 13px; }
+.turn-error { margin: 0 8px 22px 58px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); font-size: 13px; line-height: 1.7; color: var(--danger); display: flex; align-items: flex-start; flex-wrap: wrap; gap: 10px; }
+.turn-error .text-button { padding: 0; gap: 5px; flex-shrink: 0; }
+.content-column.trash-column { padding: 28px 24px; overflow: auto; }
+.trash-view { min-width: 0; }
+.trash-view .section-heading { align-items: flex-start; flex-wrap: wrap; gap: 14px; }
+.trash-list { display: flex; flex-direction: column; gap: 12px; }
+.trash-item { display: flex; align-items: center; gap: 13px; padding: 17px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.trash-item-icon { width: 36px; height: 40px; display: grid; place-items: center; color: var(--text-muted); background: var(--surface-subtle); border-radius: 8px; flex-shrink: 0; }
+.trash-item-copy { min-width: 0; flex: 1; }
+.trash-item h3 { margin: 0 0 6px; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.trash-item p { margin: 0; font-size: 12px; color: var(--text-muted); line-height: 1.7; }
+.trash-item-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 12px; flex-shrink: 0; }
+.trash-item-actions .secondary-button { padding: 8px 11px; min-height: 34px; gap: 6px; font-size: 12px; }
+.danger-action { color: var(--danger); }
+@media (max-height: 820px) and (min-width: 768px) {
+  .sidebar { padding-top: 10px; }
+  .sidebar-new-conversation { min-height: 36px; padding-block: 7px; margin-bottom: 6px; }
+  .primary-nav { padding-bottom: 5px; }
+  .primary-nav button { min-height: 34px; padding-block: 6px; }
+  .library-list { max-height: 110px; }
+  .history-heading { min-height: 32px; padding-block: 6px; }
+  .history-open { padding-block: 7px; }
+}
+@media (max-width: 767px) {
+  .titlebar .brand-mark, .titlebar .brand-mark img { width: 34px; height: 34px; }
+  .titlebar .brand strong { font-size: 19px; }
+  .titlebar .brand span { display: none; }
+  .titlebar .brand { padding-left: 0; gap: 6px; }
+  .titlebar-actions { gap: 3px; }
+  .titlebar .sidebar-toggle { margin-left: 6px; margin-right: 4px; }
+  .theme-toggle { width: 30px; }
+  .conversation-history { min-height: 100px; }
+  .sidebar .library-list { min-height: 50px; max-height: 120px; }
+  .sidebar .sidebar-new-conversation { min-height: 38px; margin-bottom: 6px; }
+  .conversation-tab { max-width: 94%; }
+  .turn-pending { margin-left: 37px; }
+  .turn-error { margin-left: 37px; }
+  .content-column.trash-column { padding: 22px 18px; }
+  .trash-item { align-items: flex-start; flex-wrap: wrap; padding: 14px; }
+  .trash-item-actions { width: 100%; }
+}

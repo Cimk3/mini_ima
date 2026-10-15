@@ -1,0 +1,24 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Miniima",
+  "version": "0.1.0",
+  "identifier": "com.miniima.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://127.0.0.1:1430",
+    "frontendDist": "../build/frontend"
+  },
+  "app": {
+    "windows": [{ "label": "main", "title": "Mini-ima", "width": 1440, "height": 960, "minWidth": 980, "minHeight": 680, "center": true, "decorations": false }],
+    "security": {
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "externalBin": ["binaries/miniima-backend"],
+    "icon": ["icons/icon.ico"]
+  }
+}
