@@ -35,9 +35,7 @@ export default function Titlebar({ onSettings, onQuery, disabled, compact, theme
     </form>
     <div className="titlebar-actions">
       {!compact && <button className="icon-button settings-trigger" aria-label="模型与设置" disabled={disabled || locked} onClick={onSettings}><Settings size={22} /></button>}
-      <span className="titlebar-divider" />
       <button className="theme-toggle icon-button" aria-label={theme === 'light' ? '切换深色模式' : '切换浅色模式'} title={theme === 'light' ? '切换深色模式' : '切换浅色模式'} disabled={locked} onClick={onTheme}>{theme === 'light' ? <Moon size={21} /> : <Sun size={21} />}</button>
-      <span className="titlebar-divider" />
       <div className="window-controls">
         <button aria-label="最小化窗口" onClick={() => void windowAction('minimize')}><Minus size={18} /></button>
         <button aria-label="最大化或还原窗口" onClick={() => void windowAction('maximize')}><Square size={14} /></button>

@@ -63,6 +63,15 @@ class Dispatcher:
         return value
 
     def dispatch(self, method: str, params: dict):
+        if method == 'web.open':
+            import webbrowser
+            from miniima.providers.web_search import public_url
+            url = public_url(self.text(params, 'url'))
+            if not url:
+                raise RequestError('只支持有效的 HTTP / HTTPS 网页链接。')
+            if not webbrowser.open(url):
+                raise RequestError('无法打开默认浏览器，请复制网页链接后手动打开。')
+            return {'opened': True}
         if method == "initialize":
             self.repository.initialize()
             if not self.initialized:
@@ -77,11 +86,13 @@ class Dispatcher:
                 return self.repository.get_conversation(conversation['id'])
             return self.repository.get_conversation(self.text(params, 'conversation_id'))
         if method == 'conversations.send':
+            if not isinstance(params.get('web_search', False), bool):
+                raise RequestError('联网搜索选项无效。')
             conversation_id = params.get('conversation_id')
             if conversation_id is not None and (not isinstance(conversation_id, str) or not conversation_id.strip()):
                 raise RequestError('对话编号无效。')
             return ConversationService(self.service()).send(self.text(params, 'kb'), self.text(params, 'question'),
-                self.text(params, 'request_id'), conversation_id)
+                self.text(params, 'request_id'), conversation_id, web_search=params.get('web_search', False))
         if method == 'conversations.retry':
             return ConversationService(self.service()).retry(self.text(params, 'request_id'))
         if method == 'conversations.delete':

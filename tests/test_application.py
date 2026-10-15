@@ -34,7 +34,7 @@ def test_persistence_search_rag_and_citation_snapshots(tmp_path, repository, set
         vector = connection.execute("SELECT vector FROM embeddings").fetchone()[0]
         assert len(vector) == 8 * 4
     assert repository.diagnostics() == {"integrity": "ok", "foreign_key_errors": 0,
-                                        "schema_version": 2, "journal_mode": "wal"}
+                                        "schema_version": 3, "journal_mode": "wal"}
 
 
 def test_dedup_and_knowledge_base_isolation(tmp_path, repository, settings, provider):

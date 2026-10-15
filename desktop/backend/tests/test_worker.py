@@ -62,6 +62,32 @@ def call(dispatcher, method, **params):
     return response["result"]
 
 
+def test_web_search_ipc_validates_mode_and_saves_web_citation(dispatcher, monkeypatch):
+    monkeypatch.setattr('miniima.application.conversations.search_web', lambda question: [{
+        'id': 'web:test', 'chunk_id': None, 'document_id': 'web:test', 'filename': 'TCP 规范',
+        'content': 'TCP 使用三次握手同步序列号。',
+        'source_metadata': {'kind': 'web', 'url': 'https://example.org/tcp',
+                            'line_start': 0, 'line_end': 0, 'heading_path': ['TCP 规范']}}])
+    kb = call(dispatcher, 'kb.create', name='联网 IPC')
+    invalid = dispatcher.handle({'id': 'invalid', 'method': 'conversations.send', 'params': {
+        'kb': kb['id'], 'question': 'TCP', 'request_id': 'web-invalid', 'web_search': 'false'}})
+    assert 'error' in invalid
+    detail = call(dispatcher, 'conversations.send', kb=kb['id'], question='TCP', request_id='web-valid', web_search=True)
+    assert detail['messages'][0]['web_search'] == 1
+    assert detail['messages'][1]['citations'][0]['source_metadata']['url'] == 'https://example.org/tcp'
+
+
+def test_web_open_ipc_only_opens_valid_web_urls(dispatcher, monkeypatch):
+    opened = []
+    monkeypatch.setattr('webbrowser.open', lambda url: opened.append(url) or True)
+    for url in ('file:///private', 'javascript:alert(1)', 'https://user:pass@example.org'):
+        response = dispatcher.handle({'id': 'invalid', 'method': 'web.open', 'params': {'url': url}})
+        assert 'error' in response
+    assert not opened
+    assert call(dispatcher, 'web.open', url='https://example.org/tcp')['opened']
+    assert opened == ['https://example.org/tcp']
+
+
 def test_cli_core_to_desktop_and_desktop_to_cli_persist(dispatcher, tmp_path):
     kb = call(dispatcher, "kb.create", name="网络")
     path = tmp_path / "中文 路径.md"

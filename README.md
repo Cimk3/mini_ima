@@ -88,7 +88,7 @@ Key 输入时默认可见；输入完成后不会再打印完整 Key，`config s
 
 ## 数据与配置
 
-默认数据目录为用户目录下的 `.miniima`，包含 `config.json`、`miniima.sqlite3` 和 `originals/`。升级到数据库版本 2 前，SQLite 完整备份保存在 `backups/`。可在初始化前设置独立目录：
+默认数据目录为用户目录下的 `.miniima`，包含 `config.json`、`miniima.sqlite3` 和 `originals/`。升级到数据库版本 3 前，SQLite 完整备份保存在 `backups/`。可在初始化前设置独立目录：
 
 ```powershell
 $env:MINIIMA_HOME = "D:\MiniimaData"

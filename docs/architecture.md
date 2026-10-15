@@ -19,6 +19,10 @@ SQLite 是权威数据源，启用 WAL 和外键。七张业务表为 `knowledge
 
 SQL 迁移位于 `src/miniima/storage/migrations/NNN_description.sql`，随 Python 包分发。桌面启动、`init` 与 CLI 数据访问检查迁移，在 `BEGIN IMMEDIATE` 事务内按顺序应用，记录 `PRAGMA user_version`，拒绝更高版本数据库。版本 2 增加知识库/会话软删除时间、会话标题、消息顺序与请求状态。旧库升级前使用 SQLite backup 接口保存包含 WAL 已提交数据的完整备份，重复初始化保留现有数据。
 
+版本 3 为问题增加 `web_search` 标记，失败重试保留原检索方式。开启联网时，后台通过独立的无凭据 HTTP 请求访问 Bing RSS（备用 DuckDuckGo HTML），只发送当前问题，不传本地资料或历史；网页摘要作为不可信证据参与本轮引用校验。网页引用沿用原有引用快照表，`chunk_id` 为空，链接、检索时间及搜索服务保存在 `source_metadata`，无需关联本地分块。`web.open` IPC 仅允许 HTTP / HTTPS，交由系统默认浏览器打开。
+
+多个对话窗口及各窗口草稿保存在按数据目录隔离的工作区偏好中；SQLite 继续保存对话实体。关闭标签不删除已保存会话。异步发送记录原窗口 key，返回时只更新相应窗口，避免覆盖同知识库下另一个空白对话。
+
 Embedding BLOB 使用小端 float32，保存模型和维度。知识库还绑定服务地址，防止同名模型来自不同服务时被意外混用。所有有效检索行通过当前知识库及 `ready` 文档过滤。
 
 ## 导入与恢复

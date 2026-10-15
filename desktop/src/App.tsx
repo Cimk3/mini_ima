@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { BookOpen, Plus, FileText, Search, Sparkles, Upload, Settings2, Trash2, X,
   Loader2, ChevronRight, Check, AlertCircle, Layers, Database,
-  MessageCircleMore, MessageSquare, Archive, ChevronDown, History, MoreHorizontal } from 'lucide-react';
+  MessageCircleMore, MessageSquare, Archive, ChevronDown, History, MoreHorizontal, PanelRightOpen, PanelRightClose } from 'lucide-react';
 import { request, chooseFiles, confirmAction, errorMessage, handleWindowClose } from './bridge';
 import SettingsDialog from './components/SettingsDialog';
 import NewKnowledgeBaseDialog from './components/NewKnowledgeBaseDialog';
@@ -10,9 +10,10 @@ import Titlebar from './components/Titlebar';
 import { useDialog } from './components/useDialog';
 import { useMediaQuery } from './hooks/useMediaQuery';
 import ChatWorkspace from './components/ChatWorkspace';
+import ConversationTabs from './components/ConversationTabs';
 import TrashView from './components/TrashView';
 import { readWorkspace, writeWorkspace, draft, draftKey } from './workspaceStorage';
-import type { Bootstrap, ConversationDetail, ConversationPage, ConversationSummary, DocumentRecord, ImportEntry, ImportResult, KnowledgeBase, Outbox, SettingsSnapshot, Source, TrashItem } from './types';
+import type { Bootstrap, ConversationDetail, ConversationPage, ConversationSummary, ConversationWindow, DocumentRecord, ImportEntry, ImportResult, KnowledgeBase, Outbox, SettingsSnapshot, Source, TrashItem } from './types';
 
 type Tab = 'documents' | 'search' | 'ask' | 'trash';
 const date = (value: string) => value ? new Date(value).toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }) : '未记录';
@@ -29,6 +30,12 @@ export default function App() {
   const overlaySource = useMediaQuery('(max-width: 1079px)');
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [sidebarHidden, setSidebarHidden] = useState(() => { try { return localStorage.getItem('miniima-sidebar-hidden') === 'true'; } catch { return false; } });
+  const [sourceHidden, setSourceHidden] = useState(() => { try { return localStorage.getItem('miniima-source-hidden') === 'true'; } catch { return false; } });
+  const [windows, setWindows] = useState<ConversationWindow[]>([]);
+  const windowsRef = useRef<ConversationWindow[]>([]);
+  const [activeWindowKey, setActiveWindowKey] = useState('');
+  const activeWindow = useRef('');
+  const [webSearch, setWebSearch] = useState(false);
   const [theme, setTheme] = useState<Theme>(savedTheme);
   const [bases, setBases] = useState<KnowledgeBase[]>([]);
   const [selected, setSelected] = useState('');
@@ -46,7 +53,7 @@ export default function App() {
   const [trash, setTrash] = useState<TrashItem[]>([]);
   const [trashLoading, setTrashLoading] = useState(false);
   const [sourceGroup, setSourceGroup] = useState<Source[]>([]);
-  const [pendingTurn, setPendingTurn] = useState<{ view: number; request: Outbox } | null>(null);
+  const [pendingTurn, setPendingTurn] = useState<{ view: number; windowKey: string; request: Outbox } | null>(null);
   const [unconfirmed, setUnconfirmed] = useState<Outbox | null>(null);
   const [source, setSource] = useState<Source | null>(null);
   const [expandedSource, setExpandedSource] = useState(false);
@@ -75,6 +82,7 @@ export default function App() {
   const modalTrigger = useRef<HTMLElement | null>(null);
   const navigationTrigger = useRef<HTMLButtonElement>(null);
   const sourceTrigger = useRef<HTMLElement | null>(null);
+  const sourceToggle = useRef<HTMLButtonElement>(null);
   const navigationVisible = compactNavigation && navigationOpen;
   const navigationRef = useDialog<HTMLElement>(() => setNavigationOpen(false), false, navigationTrigger.current, navigationVisible);
   const base = bases.find(kb => kb.id === selected);
@@ -108,6 +116,14 @@ export default function App() {
   }, [sidebarHidden]);
 
   useEffect(() => {
+    try { localStorage.setItem('miniima-source-hidden', String(sourceHidden)); } catch { /* Optional layout preference. */ }
+  }, [sourceHidden]);
+
+  useEffect(() => {
+    if (settings && !startup) writeWorkspace(settings.home, { windows, activeWindowKey });
+  }, [windows, activeWindowKey, settings?.home, startup]);
+
+  useEffect(() => {
     if (!settings || startup || tab !== 'ask') return;
     const saved = readWorkspace(settings.home);
     writeWorkspace(settings.home, { lastConversationId: activeId, lastKb: selected,
@@ -135,13 +151,65 @@ export default function App() {
     finally { if (version === loadingId.current) setDocsLoading(false); }
   }
 
-  function selectBase(id: string, activateConversation = true) {
+  function updateWindows(next: ConversationWindow[] | ((items: ConversationWindow[]) => ConversationWindow[])) {
+    const items = typeof next === 'function' ? next(windowsRef.current) : next;
+    windowsRef.current = items; setWindows(items);
+  }
+
+  function changeQuery(text: string) {
+    setQuery(text);
+    if (tab === 'ask') updateWindows(items => items.map(item => item.key === activeWindow.current ? { ...item, draft: text } : item));
+  }
+
+  function changeWebSearch(enabled: boolean) {
+    setWebSearch(enabled);
+    updateWindows(items => items.map(item => item.key === activeWindow.current ? { ...item, webSearch: enabled } : item));
+  }
+
+  function blankWindow(kb: string, forceNew = false): ConversationWindow {
+    const existing = !forceNew && windowsRef.current.find(item => item.kb === kb && !item.conversationId);
+    if (existing) return existing;
+    const item = { key: crypto.randomUUID(), kb, conversationId: null, title: '新对话',
+      draft: forceNew ? '' : draft(homeRef.current, kb, null), webSearch: false };
+    updateWindows(items => [...items, item]); return item;
+  }
+
+  function activateBlank(item: ConversationWindow, activateConversation = true) {
     ++viewVersion.current;
+    activeWindow.current = item.key; setActiveWindowKey(item.key); setWebSearch(item.webSearch);
     if (activateConversation) setTab('ask');
     setNavigationOpen(false);
-    selection.current = id; setSelected(id); setDocuments([]); setQuery(draft(homeRef.current, id, null)); setMatches(null);
+    const changed = selection.current !== item.kb;
+    selection.current = item.kb; setSelected(item.kb); setQuery(item.draft); setMatches(null);
     setActiveId(null); setConversation(null); setConversationLoading(false); setSource(null); setSourceGroup([]); setImports([]); setError(null); setMessage(null);
-    if (id) void loadDocuments(id);
+    if (changed) setDocuments([]);
+    if (item.kb) void loadDocuments(item.kb);
+  }
+
+  function switchWindow(item: ConversationWindow) {
+    if (item.key === activeWindow.current && tab === 'ask') return;
+    if (item.conversationId) void openConversation(item.conversationId);
+    else activateBlank(item);
+  }
+
+  function closeWindow(key: string) {
+    const index = windowsRef.current.findIndex(item => item.key === key);
+    const closed = windowsRef.current[index];
+    if (closed) {
+      const saved = readWorkspace(homeRef.current);
+      writeWorkspace(homeRef.current, { drafts: { ...saved.drafts, [draftKey(closed.kb, closed.conversationId)]: '' } });
+    }
+    const remaining = windowsRef.current.filter(item => item.key !== key);
+    updateWindows(remaining);
+    if (activeWindow.current === key) {
+      focusNewQuestion.current = true; setFocusRequest(value => value + 1);
+      const next = remaining[Math.max(0, index - 1)] || blankWindow(selected, true);
+      switchWindow(next);
+    }
+  }
+
+  function selectBase(id: string, activateConversation = true) {
+    activateBlank(blankWindow(id), activateConversation);
   }
 
   async function loadHistory(offset = 0) {
@@ -165,12 +233,21 @@ export default function App() {
 
   async function openConversation(id: string, existing?: ConversationDetail) {
     const version = ++viewVersion.current;
+    const summary = existing || history.find(item => item.id === id);
+    let window = windowsRef.current.find(item => item.conversationId === id);
+    if (!window) {
+      window = { key: crypto.randomUUID(), kb: summary?.knowledge_base_id || selection.current, conversationId: id,
+        title: summary?.title || '对话', draft: draft(homeRef.current, summary?.knowledge_base_id || selection.current, id), webSearch: false };
+      updateWindows(items => [...items, window!]);
+    }
+    const key = window.key;
+    activeWindow.current = key; setActiveWindowKey(key); setWebSearch(window.webSearch);
     setNavigationOpen(false); setTab('ask'); setActiveId(id); setConversation(null); setConversationLoading(true);
     setSource(null); setSourceGroup([]); setError(null); setMessage(null);
-    const summary = existing || history.find(item => item.id === id);
-    setQuery(draft(homeRef.current, summary?.knowledge_base_id || selection.current, id));
+    setQuery(window.draft);
     try {
       const detail = existing || await request<ConversationDetail>('conversations.get', { conversation_id: id });
+      updateWindows(items => items.map(item => item.key === key ? { ...item, kb: detail.knowledge_base_id, title: detail.title } : item));
       if (viewVersion.current !== version) return;
       setConversation(detail);
       if (selection.current !== detail.knowledge_base_id) {
@@ -178,7 +255,10 @@ export default function App() {
         void loadDocuments(detail.knowledge_base_id);
       }
     } catch (e) {
-      if (viewVersion.current === version) { setError(errorMessage(e)); setActiveId(null); }
+      if (viewVersion.current === version) {
+        updateWindows(items => items.filter(item => item.key !== key));
+        activateBlank(blankWindow(selection.current)); setError(errorMessage(e));
+      }
     } finally { if (viewVersion.current === version) setConversationLoading(false); }
   }
 
@@ -189,8 +269,17 @@ export default function App() {
       homeRef.current = data.settings.home;
       const saved = readWorkspace(data.settings.home);
       setBases(data.knowledge_bases); setSettings(data.settings);
+      const restored = Array.isArray(saved.windows) ? saved.windows.filter(item => item && typeof item.key === 'string'
+        && typeof item.title === 'string' && typeof item.draft === 'string' && typeof item.webSearch === 'boolean'
+        && (item.conversationId === null || typeof item.conversationId === 'string')
+        && data.knowledge_bases.some(kb => kb.id === item.kb)).filter((item, index, list) => list.findIndex(other => other.key === item.key
+          || !!item.conversationId && other.conversationId === item.conversationId) === index) : [];
+      updateWindows(restored);
       const current = data.knowledge_bases.find(kb => kb.id === saved.lastKb) || data.knowledge_bases[0];
-      selectBase(current?.id || '');
+      if (restored.length) {
+        selection.current = current?.id || ''; setSelected(selection.current);
+        if (selection.current) void loadDocuments(selection.current);
+      } else selectBase(current?.id || '');
       await loadHistory();
       if (saved.outbox) {
         try {
@@ -199,10 +288,17 @@ export default function App() {
           writeWorkspace(homeRef.current, { outbox: null });
         } catch {
           if (data.knowledge_bases.some(kb => kb.id === saved.outbox!.kb)) {
-            selectBase(saved.outbox.kb); setQuery(saved.outbox.question); setUnconfirmed(saved.outbox);
+            const originalWindow = windowsRef.current.find(item => item.key === saved.outbox!.window_key && !item.conversationId);
+            if (originalWindow) activateBlank(originalWindow); else selectBase(saved.outbox.kb);
+            changeQuery(saved.outbox.question); changeWebSearch(!!saved.outbox.web_search); setUnconfirmed(saved.outbox);
           }
         }
-      } else if (saved.lastConversationId) await openConversation(saved.lastConversationId);
+      } else {
+        const savedWindow = restored.find(item => item.key === saved.activeWindowKey) || restored[0];
+        if (savedWindow?.conversationId) await openConversation(savedWindow.conversationId);
+        else if (savedWindow) activateBlank(savedWindow);
+        else if (saved.lastConversationId) await openConversation(saved.lastConversationId);
+      }
       if (!data.settings.effective.embedding_ready || !data.settings.effective.api_key_configured) setSettingsOpen(true);
     } catch (e) { setError(errorMessage(e)); }
     finally { setStartup(false); }
@@ -219,6 +315,7 @@ export default function App() {
     try {
       const [items, config] = await Promise.all([request<KnowledgeBase[]>('kb.list'), request<SettingsSnapshot>('settings.get')]);
       setBases(items); setSettings(config);
+      updateWindows(windows => windows.filter(window => items.some(kb => kb.id === window.kb)));
       if (items.some(kb => kb.id === selection.current)) await loadDocuments(selection.current);
       else selectBase(items[0]?.id || '');
       await loadHistory();
@@ -230,6 +327,7 @@ export default function App() {
         } catch (e) {
           if (viewVersion.current !== version || activeConversation.current !== conversationId) return;
           if (!/对话不存在|已移入回收站/.test(errorMessage(e))) throw e;
+          updateWindows(items => items.filter(window => window.conversationId !== conversationId));
           if (workspaceTab.current === 'ask') newQuestion();
           else { setActiveId(null); setConversation(null); }
           setMessage('当前对话已移入回收站或被彻底删除，可在回收站查看。');
@@ -265,8 +363,14 @@ export default function App() {
 
   function openSource(item: Source, trigger: HTMLElement, sources: Source[] = [item]) {
     sourceTrigger.current = trigger;
+    setSourceHidden(false);
     setSourceGroup(sources);
     setSource(item);
+  }
+
+  function collapseSource() {
+    setSourceHidden(true);
+    queueMicrotask(() => sourceToggle.current?.focus());
   }
 
   async function deleteBase() {
@@ -275,6 +379,7 @@ export default function App() {
     if (!await confirmAction(`将「${captured.name}」及其文档和对话移入回收站？之后可以恢复。`)) return;
     setBusy('delete'); setError(null);
     try { await request('kb.delete', { kb: captured.id });
+      updateWindows(items => items.filter(item => item.kb !== captured.id));
       const items = await request<KnowledgeBase[]>('kb.list'); setBases(items); selectBase(items[0]?.id || '');
       await loadHistory(); setMessage('知识库已移入回收站，可在回收站中恢复。');
     } catch (e) { setError(errorMessage(e)); }
@@ -307,13 +412,19 @@ export default function App() {
 
   async function runQuery(event?: React.FormEvent, suggestion?: string, requestedMode?: 'search' | 'ask') {
     event?.preventDefault(); const text = (suggestion || query).trim();
-    if (!text || !selected || busy) return;
+    if (!text || !selected || busy || conversationLoading) return;
     const kb = selected; const mode = requestedMode || (tab === 'search' ? 'search' : 'ask');
     const version = viewVersion.current;
+    const windowKey = activeWindow.current;
     setQuery(mode === 'search' ? text : ''); setBusy(mode); setError(null); setMessage(null); setSource(null);
-    const outgoing: Outbox = unconfirmed && unconfirmed.kb === kb && unconfirmed.question === text ? unconfirmed
-      : { kb, question: text, request_id: crypto.randomUUID(), ...(activeId ? { conversation_id: activeId } : {}) };
-    if (mode === 'ask') { setPendingTurn({ view: version, request: outgoing }); writeWorkspace(homeRef.current, { outbox: outgoing }); }
+    const outgoing: Outbox = unconfirmed && unconfirmed.kb === kb && unconfirmed.question === text
+      && (!unconfirmed.window_key || unconfirmed.window_key === windowKey)
+      && unconfirmed.conversation_id === (activeId || undefined) && !!unconfirmed.web_search === webSearch ? unconfirmed
+      : { kb, question: text, request_id: crypto.randomUUID(), window_key: windowKey, ...(activeId ? { conversation_id: activeId } : {}), ...(webSearch ? { web_search: true } : {}) };
+    if (mode === 'ask') {
+      updateWindows(items => items.map(item => item.key === windowKey ? { ...item, draft: '' } : item));
+      setPendingTurn({ view: version, windowKey, request: outgoing }); writeWorkspace(homeRef.current, { outbox: outgoing });
+    }
     try {
       if (mode === 'search') {
         const result = await request<Source[]>('search', { kb, question: text, top_k: 5 });
@@ -321,7 +432,8 @@ export default function App() {
       } else {
         const result = await request<ConversationDetail>('conversations.send', { ...outgoing });
         writeWorkspace(homeRef.current, { outbox: null }); setUnconfirmed(null);
-        if (selection.current === kb && (viewVersion.current === version || activeConversation.current === result.id)) {
+        updateWindows(items => items.map(item => item.key === windowKey ? { ...item, conversationId: result.id, title: result.title } : item));
+        if (workspaceTab.current === 'ask' && selection.current === kb && (activeWindow.current === windowKey || activeConversation.current === result.id)) {
           setConversation(result); setActiveId(result.id);
           const sources = result.messages.filter(message => message.role === 'assistant').at(-1)?.citations || [];
           if (!overlaySource && workspaceTab.current === 'ask' && viewVersion.current === version) { setSource(sources[0] || null); setSourceGroup(sources); }
@@ -329,7 +441,10 @@ export default function App() {
         await loadHistory();
       }
     } catch (e) {
-      if (mode === 'ask') setUnconfirmed(outgoing);
+      if (mode === 'ask') {
+        setUnconfirmed(outgoing);
+        updateWindows(items => items.map(item => item.key === windowKey ? { ...item, draft: text } : item));
+      }
       if (selection.current === kb && viewVersion.current === version) { setError(errorMessage(e)); if (mode === 'ask') setQuery(text); }
     } finally { setBusy(null); setPendingTurn(null); }
   }
@@ -352,6 +467,7 @@ export default function App() {
     setBusy('delete'); setError(null);
     try {
       await request('conversations.delete', { conversation_id: item.id });
+      updateWindows(items => items.filter(window => window.conversationId !== item.id));
       if (activeId === item.id && viewVersion.current === version) newQuestion();
       await loadHistory(); setMessage('对话已移入回收站。');
     } catch (e) { setError(errorMessage(e)); }
@@ -365,6 +481,7 @@ export default function App() {
     try {
       await request(`trash.${action}`, item ? { kind: item.kind, item_id: item.id } : {});
       const items = await request<KnowledgeBase[]>('kb.list'); setBases(items);
+      updateWindows(windows => windows.filter(window => items.some(kb => kb.id === window.kb)));
       if (!items.some(kb => kb.id === selection.current)) selectBase(items[0]?.id || '', false);
       await Promise.all([loadHistory(), loadTrash()]);
       setMessage(action === 'restore' ? '项目已恢复。' : action === 'empty' ? '回收站已清空。' : '项目已彻底删除。');
@@ -382,16 +499,14 @@ export default function App() {
 
   function changeTab(next: Tab) {
     if (next !== tab) ++viewVersion.current;
-    setTab(next); setQuery(next === 'ask' ? draft(homeRef.current, selected, activeId) : ''); setSource(null); setError(null);
+    setTab(next); setQuery(next === 'ask' ? windowsRef.current.find(item => item.key === activeWindow.current)?.draft || '' : ''); setSource(null); setError(null);
     if (next === 'trash') void loadTrash();
   }
 
   function newQuestion() {
-    ++viewVersion.current;
     focusNewQuestion.current = true;
     setFocusRequest(value => value + 1);
-    setNavigationOpen(false);
-    setTab('ask'); setActiveId(null); setConversation(null); setConversationLoading(false); setQuery(''); setSource(null); setSourceGroup([]); setError(null); setMessage(null);
+    activateBlank(blankWindow(selected, true));
   }
 
   const relatedSources = tab === 'ask' ? sourceGroup : tab === 'search' ? matches || [] : source ? [source] : [];
@@ -464,14 +579,12 @@ export default function App() {
       </div>
     </aside>
     <main className="workspace" inert={modalOpen || sourceModal || navigationVisible}>
-      <div className={`workspace-content ${!overlaySource ? 'with-source' : ''}`}>
+      <div className={`workspace-content ${!overlaySource && !sourceHidden ? 'with-source' : ''}`}>
       <div className="editor-pane" inert={expandedSource}>
       <header className="workspace-header">
         <h1 className="sr-only">{base?.name || '构建你的知识空间'}</h1>
-        <div className="conversation-tabs"><div className="conversation-tab"><MessageSquare size={18} /><strong title={conversation?.title}>{tab === 'ask' ? conversation?.title || '新对话' : tab === 'search' ? '全局搜索' : tab === 'trash' ? '回收站' : '知识库文档'}</strong>
-          {tab === 'ask' && <button className="icon-button" aria-label="关闭当前对话视图" title="关闭当前对话视图，记录仍保留" disabled={!!busy && busy !== 'ask'} onClick={newQuestion}><X size={14} /></button>}</div>
-          <button className="icon-button new-question" aria-label="新建对话" title="新建对话" disabled={!!busy && busy !== 'ask'} onClick={newQuestion}><Plus size={20} /></button>
-        </div>
+        <ConversationTabs windows={windows} activeKey={tab === 'ask' ? activeWindowKey : ''}
+          pendingKey={pendingTurn?.windowKey} disabled={startup || (!!busy && busy !== 'ask')} onSwitch={switchWindow} onClose={closeWindow} onNew={newQuestion} />
         <div className="header-actions">
           <label className="base-selector">知识库：<select aria-label="当前知识库" value={selected} onChange={event => selectBase(event.target.value)}>
             {!bases.length && <option value="">暂无知识库</option>}{bases.map(kb => <option value={kb.id} key={kb.id}>{kb.name}</option>)}
@@ -480,6 +593,8 @@ export default function App() {
             disabled={!!busy || startup} onClick={refresh}><History size={21} /></button>
           {base && tab === 'documents' && <button className="icon-button delete-button" aria-label="删除当前知识库" title="删除当前知识库"
             disabled={!!busy} onClick={deleteBase}><Trash2 size={18} /></button>}
+          {!overlaySource && <button ref={sourceToggle} className="icon-button source-toggle" aria-label={sourceHidden ? '展开来源栏' : '收起来源栏'} title={sourceHidden ? '展开来源栏' : '收起来源栏'}
+            aria-expanded={!sourceHidden} onClick={() => setSourceHidden(!sourceHidden)}>{sourceHidden ? <PanelRightOpen size={19} /> : <PanelRightClose size={19} />}</button>}
         </div>
       </header>
 
@@ -589,8 +704,8 @@ export default function App() {
               </section>}
 
               {tab === 'ask' && <ChatWorkspace conversation={conversation} loading={conversationLoading}
-                pendingQuestion={pendingTurn?.view === viewVersion.current ? pendingTurn.request.question : null}
-                baseName={base.name} query={query} onQuery={setQuery} busy={!!busy}
+                pendingQuestion={pendingTurn?.windowKey === activeWindowKey ? pendingTurn.request.question : null}
+                baseName={base.name} query={query} onQuery={changeQuery} busy={!!busy} webSearch={webSearch} onWebSearch={changeWebSearch}
                 questionRef={questionRef} answerRef={answerRef} onSend={runQuery} onImport={importDocuments}
                 onRetry={retryQuestion} onSource={openSource} onCopy={text => {
                   void navigator.clipboard.writeText(text).then(() => setMessage('回答已复制。')).catch(() => setError('无法复制，请手动选择文本。'));
@@ -602,11 +717,13 @@ export default function App() {
         <span title={settings?.home}><Database size={14} />本地存储{busy && <span className="busy-status"><Loader2 size={13} className="spin" />正在处理…</span>}</span>
       </footer>
       </div>
-      {!overlaySource && <SourceDrawer source={source} sources={relatedSources} modal={false} returnFocusTo={sourceTrigger.current} onClose={() => setSource(null)} onSelect={setSource} onExpandedChange={setExpandedSource} />}
+      {!overlaySource && !sourceHidden && <SourceDrawer source={source} sources={relatedSources} modal={false} returnFocusTo={sourceTrigger.current} onClose={() => setSource(null)} onCollapse={collapseSource} onSelect={setSource} onExpandedChange={setExpandedSource}
+        onOpenWeb={url => { void request('web.open', { url }).catch(e => setError(errorMessage(e))); }} />}
       </div>
     </main>
     {source && overlaySource && <div className="source-backdrop" onClick={event => { if (event.target === event.currentTarget) setSource(null); }}>
-      <SourceDrawer source={source} sources={relatedSources} modal returnFocusTo={sourceTrigger.current} onClose={() => setSource(null)} onSelect={setSource} onExpandedChange={setExpandedSource} />
+      <SourceDrawer source={source} sources={relatedSources} modal returnFocusTo={sourceTrigger.current} onClose={() => setSource(null)} onSelect={setSource} onExpandedChange={setExpandedSource}
+        onOpenWeb={url => { void request('web.open', { url }).catch(e => setError(errorMessage(e))); }} />
     </div>}
     {settingsOpen && settings && <SettingsDialog returnFocusTo={modalTrigger.current} snapshot={settings} onClose={() => setSettingsOpen(false)} onSaved={setSettings} onBusy={state => setBusy(state ? 'settings' : null)} />}
     {newOpen && <NewKnowledgeBaseDialog returnFocusTo={modalTrigger.current} name={newName} busy={!!busy} error={error} onName={setNewName} onClose={() => setNewOpen(false)} onSubmit={createBase} />}

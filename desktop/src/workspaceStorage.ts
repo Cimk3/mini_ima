@@ -1,6 +1,6 @@
-import type { Outbox } from './types';
+import type { ConversationWindow, Outbox } from './types';
 
-interface WorkspaceState { lastConversationId?: string | null; lastKb?: string; drafts?: Record<string, string>; outbox?: Outbox | null }
+interface WorkspaceState { lastConversationId?: string | null; lastKb?: string; drafts?: Record<string, string>; outbox?: Outbox | null; windows?: ConversationWindow[]; activeWindowKey?: string }
 const key = (home: string) => `miniima-workspace:${encodeURIComponent(home)}`;
 export const draftKey = (kb: string, conversationId: string | null) => conversationId || `new:${kb}`;
 export function readWorkspace(home: string): WorkspaceState {

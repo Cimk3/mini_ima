@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react';
-import { FileText, MoreHorizontal, ChevronLeft, ChevronRight, Maximize, Minimize, Search, X } from 'lucide-react';
+import { FileText, MoreHorizontal, ChevronLeft, ChevronRight, Maximize, Minimize, Search, X, PanelRightClose, ExternalLink } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Source } from '../types';
 import { useDialog } from './useDialog';
 
-export default function SourceDrawer({ source, sources, modal, onClose, returnFocusTo, onSelect, onExpandedChange }: {
+export default function SourceDrawer({ source, sources, modal, onClose, onCollapse, onOpenWeb, returnFocusTo, onSelect, onExpandedChange }: {
   source: Source | null;
   sources: Source[];
   modal: boolean;
   onClose: () => void;
+  onCollapse?: () => void;
+  onOpenWeb: (url: string) => void;
   onSelect: (source: Source) => void;
   onExpandedChange: (expanded: boolean) => void;
   returnFocusTo: HTMLElement | null;
@@ -22,6 +24,8 @@ export default function SourceDrawer({ source, sources, modal, onClose, returnFo
   const panel = useDialog<HTMLElement>(() => { if (expanded) expand(false); else close(); }, false, returnFocusTo, modal || expanded);
   useEffect(() => () => onExpandedChange(false), [onExpandedChange]);
   const current = sources.findIndex(item => item.id === source?.id);
+  const web = source?.source_metadata.kind === 'web';
+  const url = source?.source_metadata.url;
 
   return <aside ref={panel} className={`source-drawer ${expanded ? 'is-expanded' : ''}`} aria-label="来源详情"
     role={modal || expanded ? 'dialog' : undefined} aria-modal={modal || expanded || undefined} tabIndex={modal || expanded ? -1 : undefined}>
@@ -30,15 +34,19 @@ export default function SourceDrawer({ source, sources, modal, onClose, returnFo
       <button aria-pressed={detail} className={detail ? 'selected' : ''} onClick={() => setDetail(true)}>该文档详情</button>
     </div>
       {modal && <button className="icon-button" data-initial-focus aria-label="关闭来源" onClick={close}><X size={19} /></button>}
+      {!modal && onCollapse && <button className="icon-button" aria-label="收起右侧来源栏" title="收起来源栏" onClick={() => { expand(false); onCollapse(); }}><PanelRightClose size={18} /></button>}
     </div>
     {!source ? <div className="source-empty"><Search size={31} /><h3>核对每一处来源</h3><p>点击文档、搜索结果或回答中的引用，在这里查看原文片段。</p></div> : <>
       <div className="source-file"><span className="source-file-icon"><FileText size={25} /></span><div className="source-file-name"><h3 title={source.filename}>{source.filename}</h3>
-        <p><span>行 {source.source_metadata.line_start}–{source.source_metadata.line_end}</span>{source.citation_number ? ` · 引用 [${source.citation_number}]` : ''}</p></div>
-        <button className="source-open-button" onClick={() => expand(!expanded)}>{expanded ? '返回工作区' : '放大预览'}</button>
+        <p><span>{web ? '联网搜索 · 网页摘要' : `行 ${source.source_metadata.line_start}–${source.source_metadata.line_end}`}</span>{source.citation_number ? ` · 引用 [${source.citation_number}]` : ''}</p></div>
+        {web && url ? <button className="source-open-button web-open-button" onClick={() => onOpenWeb(url)}><ExternalLink size={14} />打开网页</button>
+          : <button className="source-open-button" onClick={() => expand(!expanded)}>{expanded ? '返回工作区' : '放大预览'}</button>}
         {!modal && <button className="icon-button source-more" aria-label="关闭来源" title="关闭来源" onClick={close}><MoreHorizontal size={20} /></button>}
       </div>
       <div className="source-reading-area">
-        {detail ? <dl className="source-metadata"><dt>文件名</dt><dd>{source.filename}</dd><dt>标题路径</dt><dd>{source.source_metadata.heading_path.join(' / ') || '文档片段'}</dd><dt>原文位置</dt><dd>行 {source.source_metadata.line_start}–{source.source_metadata.line_end}</dd><dt>存储方式</dt><dd>本地知识库 · 原始文档片段</dd></dl>
+        {detail ? <dl className="source-metadata"><dt>{web ? '网页标题' : '文件名'}</dt><dd>{source.filename}</dd>
+          {web ? <><dt>网页链接</dt><dd>{url}</dd><dt>检索时间</dt><dd>{source.source_metadata.retrieved_at ? new Date(source.source_metadata.retrieved_at).toLocaleString('zh-CN') : '未记录'}</dd><dt>存储方式</dt><dd>联网搜索 · 摘要快照</dd></>
+            : <><dt>标题路径</dt><dd>{source.source_metadata.heading_path.join(' / ') || '文档片段'}</dd><dt>原文位置</dt><dd>行 {source.source_metadata.line_start}–{source.source_metadata.line_end}</dd><dt>存储方式</dt><dd>本地知识库 · 原始文档片段</dd></>}</dl>
           : <article className="source-page" lang={/[\u4e00-\u9fff]/.test(source.content) ? 'zh-CN' : 'en'} style={{ fontSize: `${16.5 * zoom / 100}px` }}>
             <ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml components={{ img: () => null, a: ({ children }) => <span>{children}</span> }}>{source.content}</ReactMarkdown>
           </article>}
@@ -50,7 +58,7 @@ export default function SourceDrawer({ source, sources, modal, onClose, returnFo
         <button className="icon-button" aria-label={expanded ? '还原来源预览' : '展开来源预览'} onClick={() => expand(!expanded)}>{expanded ? <Minimize size={19} /> : <Maximize size={19} />}</button>
       </div>
       {!detail && <div className="related-sources"><h3>相关片段</h3>{(sources.length ? sources : [source]).map((item, index) => <button key={item.id} className={item.id === source.id ? 'selected' : ''} onClick={() => onSelect(item)}>
-        <span className="source-line-badge">行 {item.source_metadata.line_start}</span><span className="related-source-copy"><strong>{item.source_metadata.heading_path.at(-1) || item.filename}</strong><small>{item.content.replace(/^#+\s*/gm, '').slice(0, 85)}</small></span>
+        <span className="source-line-badge">{item.source_metadata.kind === 'web' ? '网页' : `行 ${item.source_metadata.line_start}`}</span><span className="related-source-copy"><strong>{item.source_metadata.heading_path.at(-1) || item.filename}</strong><small>{item.content.replace(/^#+\s*/gm, '').slice(0, 85)}</small></span>
         {item.score !== undefined ? <span className="source-score">{Math.round(Math.max(0, Math.min(1, item.score)) * 100)}%</span> : <span className="related-index">{index + 1}</span>}
       </button>)}</div>}
     </>}

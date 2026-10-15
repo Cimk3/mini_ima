@@ -7,6 +7,7 @@ from miniima.application.service import KnowledgeService
 from miniima.documents.chunking import estimate_tokens
 from miniima.errors import MiniimaError, ProviderError
 from miniima.rag.answering import build_prompt, validate_citations
+from miniima.providers.web_search import search_web
 
 
 class ConversationService:
@@ -38,8 +39,8 @@ class ConversationService:
         return [message for turn in chosen for message in turn]
 
     def send(self, kb: str, question: str, request_id: str, conversation_id: str | None = None,
-             *, retry: bool = False, top_k: int = 5) -> dict:
-        identifier, user, run = self.repository.begin_turn(kb, question, request_id, conversation_id, retry=retry)
+             *, retry: bool = False, top_k: int = 5, web_search: bool = False) -> dict:
+        identifier, user, run = self.repository.begin_turn(kb, question, request_id, conversation_id, retry=retry, web_search=web_search)
         if not run:
             return self.repository.get_conversation(identifier)
         try:
@@ -53,13 +54,18 @@ class ConversationService:
                 ]).strip()
                 if not query or len(query) > 2000:
                     raise ProviderError('未能整理追问的检索问题，请重试。')
+            web_sources = search_web(question) if web_search else []
             matches = [match for match in self.knowledge.search(query, kb, top_k)
                        if match['score'] >= self.knowledge.settings.min_score]
+            if web_search:
+                matches = [*web_sources, *matches[:2]]
             prompt, sources = build_prompt(question, matches, self.knowledge.settings.context_tokens)
             if not sources:
                 text, citations = '知识库证据不足：没有找到达到检索阈值的可用资料。', []
             else:
                 prompt[0]['content'] += '\n历史消息只用于理解当前追问，旧答案不构成本轮证据，引用编号仅对应本轮资料。'
+                if web_search:
+                    prompt[0]['content'] += '\n本轮含联网搜索摘要。区分网页与本地资料，只引用实际提供的摘要，不声称读过网页全文；说明时效限制。'
                 text, citations = validate_citations(self.knowledge.provider.chat([prompt[0], *history, *prompt[1:]]), sources)
             return self.repository.complete_turn(user['id'], text, citations)
         except Exception as error:
@@ -70,4 +76,5 @@ class ConversationService:
 
     def retry(self, request_id: str) -> dict:
         conversation, user = self.repository.retry_details(request_id)
-        return self.send(conversation['knowledge_base_id'], user['content'], request_id, conversation['id'], retry=True)
+        return self.send(conversation['knowledge_base_id'], user['content'], request_id, conversation['id'],
+                         retry=True, web_search=bool(user['web_search']))

@@ -85,6 +85,81 @@ function usePhoneViewport() {
   }));
 }
 
+test('conversation windows keep separate drafts, switch, close, and restore after restart', async () => {
+  const user = userEvent.setup(); const view = render(<App />); await screen.findByText('network.md');
+  await user.type(screen.getByLabelText('知识库问题'), '第一个窗口草稿');
+  await user.click(screen.getAllByRole('button', { name: '新建对话' })[1]);
+  await user.type(screen.getByLabelText('知识库问题'), '第二个窗口草稿');
+  let navigation = screen.getByRole('navigation', { name: '对话窗口' });
+  await user.click(within(navigation).getAllByRole('button', { name: '切换对话：新对话' })[0]);
+  expect(screen.getByLabelText('知识库问题')).toHaveValue('第一个窗口草稿');
+  await user.click(within(navigation).getAllByRole('button', { name: '切换对话：新对话' })[1]);
+  expect(screen.getByLabelText('知识库问题')).toHaveValue('第二个窗口草稿');
+  view.unmount(); render(<App />); await screen.findByText('network.md');
+  expect(screen.getByLabelText('知识库问题')).toHaveValue('第二个窗口草稿');
+  navigation = screen.getByRole('navigation', { name: '对话窗口' });
+  expect(within(navigation).getAllByRole('button', { name: '切换对话：新对话' })).toHaveLength(2);
+  await user.click(within(navigation).getAllByRole('button', { name: '关闭对话窗口：新对话' })[1]);
+  expect(screen.getByLabelText('知识库问题')).toHaveValue('第一个窗口草稿');
+  expect(mocks.request.mock.calls.some(call => call[0] === 'conversations.delete')).toBe(false);
+});
+
+test('a late result updates its original conversation window instead of a newer window in the same knowledge base', async () => {
+  const user = userEvent.setup(); let finish: (value: unknown) => void;
+  const baseline = mocks.request.getMockImplementation()!;
+  mocks.request.mockImplementation((method: string, params: Record<string, unknown>) => method === 'conversations.send'
+    ? new Promise(resolve => { finish = resolve; }) : baseline(method, params));
+  render(<App />); await screen.findByText('network.md');
+  await user.type(screen.getByLabelText('知识库问题'), '窗口一的问题{Enter}');
+  await user.click(screen.getAllByRole('button', { name: '新建对话' })[1]);
+  const result = conversationFor('窗口一的问题', '属于窗口一的回答 [1]');
+  conversations = [result]; finish!(result);
+  await waitFor(() => expect(screen.getByRole('button', { name: '切换对话：窗口一的问题' })).toBeEnabled());
+  expect(screen.queryByText('属于窗口一的回答 [1]')).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: '切换对话：窗口一的问题' }));
+  expect(await screen.findByText('属于窗口一的回答 [1]')).toBeInTheDocument();
+});
+
+test('source sidebar collapses, remembers the layout, and citations reopen it', async () => {
+  const user = userEvent.setup(); const view = render(<App />); await screen.findByText('network.md');
+  await user.click(screen.getByRole('button', { name: '收起右侧来源栏' }));
+  expect(screen.queryByLabelText('来源详情')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '展开来源栏' })).toHaveAttribute('aria-expanded', 'false');
+  view.unmount(); render(<App />); await screen.findByText('network.md');
+  expect(screen.queryByLabelText('来源详情')).not.toBeInTheDocument();
+  await user.type(screen.getByLabelText('知识库问题'), 'TCP{Enter}');
+  await user.click(await screen.findByRole('button', { name: '[1] network.md' }));
+  expect(screen.getByLabelText('来源详情')).toBeInTheDocument();
+  expect(localStorage.getItem('miniima-source-hidden')).toBe('false');
+});
+
+test('web search toggles per window and webpage sources open through the desktop bridge', async () => {
+  const user = userEvent.setup(); const baseline = mocks.request.getMockImplementation()!;
+  mocks.request.mockImplementation(async (method: string, params: Record<string, unknown>) => {
+    if (method !== 'conversations.send') return baseline(method, params);
+    const result = conversationFor('TCP 当前规范');
+    result.messages[0].web_search = true;
+    result.messages[1].citations = [{ ...source, id: 'web-citation', filename: 'TCP RFC', chunk_id: null,
+      source_metadata: { ...source.source_metadata, kind: 'web', url: 'https://example.org/tcp' } }];
+    return result;
+  });
+  render(<App />); await screen.findByText('network.md');
+  expect(screen.queryByText('深度思考')).not.toBeInTheDocument();
+  expect(window.document.querySelector('.titlebar-divider')).toBeNull();
+  const toggle = screen.getByRole('button', { name: '联网搜索' });
+  expect(toggle).toHaveAttribute('aria-pressed', 'false'); await user.click(toggle);
+  await user.click(screen.getAllByRole('button', { name: '新建对话' })[1]);
+  expect(screen.getByRole('button', { name: '联网搜索' })).toHaveAttribute('aria-pressed', 'false');
+  await user.click(within(screen.getByRole('navigation', { name: '对话窗口' })).getAllByRole('button', { name: '切换对话：新对话' })[0]);
+  expect(screen.getByRole('button', { name: '联网搜索' })).toHaveAttribute('aria-pressed', 'true');
+  await user.type(screen.getByLabelText('知识库问题'), 'TCP 当前规范{Enter}');
+  await screen.findByText('已联网搜索');
+  expect(mocks.request).toHaveBeenCalledWith('conversations.send', expect.objectContaining({ web_search: true }));
+  await user.click(screen.getByRole('button', { name: '[1] TCP RFC' }));
+  await user.click(screen.getByRole('button', { name: '打开网页' }));
+  expect(mocks.request).toHaveBeenCalledWith('web.open', { url: 'https://example.org/tcp' });
+});
+
 test('phone navigation traps focus and closes after selecting a knowledge base', async () => {
   usePhoneViewport();
   const user = userEvent.setup(); render(<App />); await screen.findByText('network.md');

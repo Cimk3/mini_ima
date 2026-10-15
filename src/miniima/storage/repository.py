@@ -15,6 +15,7 @@ import numpy as np
 from miniima.config import Settings, save_settings
 from miniima.errors import MiniimaError
 
+SCHEMA_VERSION = 3
 
 def now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -30,7 +31,7 @@ class Repository:
         if not self.path.exists():
             raise MiniimaError("尚未初始化，请先运行 miniima init。")
         connection = sqlite3.connect(self.path, timeout=15)
-        if connection.execute('PRAGMA user_version').fetchone()[0] != 2:
+        if connection.execute('PRAGMA user_version').fetchone()[0] != SCHEMA_VERSION:
             connection.close()
             self.initialize()
             connection = sqlite3.connect(self.path, timeout=15)
@@ -52,7 +53,7 @@ class Repository:
             connection.execute("PRAGMA foreign_keys = ON")
             connection.execute("PRAGMA journal_mode = WAL")
             old_version = connection.execute('PRAGMA user_version').fetchone()[0]
-            if 0 < old_version < 2:
+            if 0 < old_version < SCHEMA_VERSION:
                 backups = self.home / 'backups'
                 backups.mkdir(exist_ok=True)
                 backup = backups / f'miniima-v{old_version}-{uuid.uuid4().hex}.sqlite3'
@@ -284,7 +285,7 @@ class Repository:
         return result
 
     def begin_turn(self, kb_reference: str, question: str, request_id: str,
-                   conversation_id: str | None = None, *, retry: bool = False) -> tuple[str, dict, bool]:
+                   conversation_id: str | None = None, *, retry: bool = False, web_search: bool = False) -> tuple[str, dict, bool]:
         question = question.strip()
         if not question or not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
             raise MiniimaError('问题或请求编号无效。')
@@ -297,7 +298,8 @@ class Repository:
             if old:
                 conversation = self._conversation(connection, old['conversation_id'])
                 if (conversation['knowledge_base_id'] != kb['id'] or old['content'] != question
-                        or (conversation_id and old['conversation_id'] != conversation_id)):
+                        or (conversation_id and old['conversation_id'] != conversation_id)
+                        or bool(old['web_search']) != web_search):
                     raise MiniimaError('请求编号已用于另一个问题。')
                 conversation_id = old['conversation_id']
                 if old['status'] == 'pending':
@@ -326,10 +328,11 @@ class Repository:
                 last = connection.execute('SELECT position,role FROM messages WHERE conversation_id=? ORDER BY position DESC LIMIT 1', (conversation_id,)).fetchone()
                 position = last['position'] + (2 if last['role'] == 'user' else 1) if last else 0
                 message = {'id': str(uuid.uuid4()), 'conversation_id': conversation_id, 'role': 'user',
-                           'content': question, 'request_id': request_id, 'status': 'pending', 'position': position}
+                           'content': question, 'request_id': request_id, 'status': 'pending', 'position': position,
+                           'web_search': int(web_search)}
                 connection.execute('''INSERT INTO messages
-                    (id,conversation_id,role,content,created_at,updated_at,position,status,request_id,worker_pid)
-                    VALUES (:id,:conversation_id,:role,:content,:time,:time,:position,:status,:request_id,:pid)''',
+                    (id,conversation_id,role,content,created_at,updated_at,position,status,request_id,worker_pid,web_search)
+                    VALUES (:id,:conversation_id,:role,:content,:time,:time,:position,:status,:request_id,:pid,:web_search)''',
                     {**message, 'time': timestamp, 'pid': os.getpid()})
             connection.execute('UPDATE conversations SET updated_at=? WHERE id=?', (timestamp, conversation_id))
         return conversation_id, message, True
@@ -357,7 +360,7 @@ class Repository:
             for citation in citations:
                 connection.execute('''INSERT INTO message_citations
                     (id,message_id,chunk_id,citation_number,document_id,filename,content,source_metadata,created_at)
-                    VALUES (?,?,?,?,?,?,?,?,?)''', (str(uuid.uuid4()), answer_id, citation['id'], citation['citation_number'],
+                    VALUES (?,?,?,?,?,?,?,?,?)''', (str(uuid.uuid4()), answer_id, citation.get('chunk_id', citation['id']), citation['citation_number'],
                     citation['document_id'], citation['filename'], citation['content'],
                     json.dumps(citation['source_metadata'], ensure_ascii=False), timestamp))
             connection.execute("UPDATE messages SET status='completed',error=NULL,worker_pid=NULL,updated_at=? WHERE id=?", (timestamp, user_id))

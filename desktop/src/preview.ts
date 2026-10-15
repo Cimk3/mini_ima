@@ -27,6 +27,10 @@ function activeBases() { return state.bases.filter(kb => !state.trash.some(item 
 function activeConversations() { return state.conversations.filter(conversation => activeBases().some(kb => kb.id === conversation.knowledge_base_id) && !state.trash.some(item => item.kind === 'conversation' && item.id === conversation.id)); }
 const answer = reference ? referenceAnswer : 'TCP 三次握手的核心是**让双方确认连接可用，并同步初始序列号**。[1]\n\n1. 客户端发送 SYN，发起连接。\n2. 服务器回复 SYN + ACK，确认收到请求。\n3. 客户端发送 ACK，确认收到服务器的回应。\n\n第三次握手让服务器确认客户端已收到自己的初始序列号。';
 const sources = reference ? referenceSources : [source];
+const webSource: Source = { id: 'preview-web', chunk_id: null, document_id: 'web:preview', filename: 'TCP 规范 · RFC 9293',
+  content: 'TCP 使用三次握手建立连接，同步双方的初始序列号。此处为开发预览的模拟网页摘要。', citation_number: 1,
+  source_metadata: { kind: 'web', url: 'https://www.rfc-editor.org/rfc/rfc9293', retrieved_at: '2026-10-15T00:00:00Z',
+    line_start: 0, line_end: 0, heading_path: ['TCP 规范 · RFC 9293'] } };
 
 // Explicit development preview; never used by the packaged application.
 export async function previewRequest(method: string, params: Record<string, unknown>): Promise<unknown> {
@@ -43,6 +47,7 @@ export async function previewRequest(method: string, params: Record<string, unkn
       { id: 'doc2', filename: '以太网学习笔记.txt', status: 'ready', error: null, chunk_count: 5, source_type: 'txt', created_at: '2026-10-12T14:20:00' }] : [];
     case 'docs.preview': return sources.find(item => item.document_id === params.document_id) || sources[0];
     case 'search': return sources;
+    case 'web.open': window.open(String(params.url), '_blank', 'noopener,noreferrer'); return { opened: true };
     case 'ask': return { text: answer, citations: sources, conversation_id: 'legacy-preview' };
     case 'conversations.list': { const items = activeConversations().sort((a, b) => b.updated_at.localeCompare(a.updated_at)); const offset = Number(params.offset || 0), limit = Number(params.limit || 50); return { items: items.slice(offset, offset + limit), total: items.length, has_more: offset + limit < items.length }; }
     case 'conversations.get': { const conversation = activeConversations().find(item => params.request_id ? item.messages.some(message => message.request_id === params.request_id) : item.id === params.conversation_id); if (!conversation) throw Error('对话不存在或已移入回收站。'); return conversation; }
@@ -57,8 +62,8 @@ export async function previewRequest(method: string, params: Record<string, unkn
       }
       if (conversation.messages.some(message => message.request_id === params.request_id)) return conversation;
       const userId = crypto.randomUUID(), position = conversation.messages.length;
-      conversation.messages.push({ id: userId, conversation_id: conversation.id, role: 'user', content: String(params.question), position, status: 'completed', request_id: String(params.request_id), reply_to: null, error: null, citations: [] });
-      conversation.messages.push({ id: crypto.randomUUID(), conversation_id: conversation.id, role: 'assistant', content: position ? '结合前面的讨论，' + answer : answer, position: position + 1, status: 'completed', request_id: null, reply_to: userId, error: null, citations: sources.map(item => ({ ...item, id: crypto.randomUUID() })) });
+      conversation.messages.push({ id: userId, conversation_id: conversation.id, role: 'user', content: String(params.question), position, status: 'completed', request_id: String(params.request_id), reply_to: null, error: null, citations: [], web_search: !!params.web_search });
+      conversation.messages.push({ id: crypto.randomUUID(), conversation_id: conversation.id, role: 'assistant', content: params.web_search ? '根据联网搜索的模拟摘要，TCP 使用三次握手同步序列号。[1]' : position ? '结合前面的讨论，' + answer : answer, position: position + 1, status: 'completed', request_id: null, reply_to: userId, error: null, citations: (params.web_search ? [webSource] : sources).map(item => ({ ...item, id: crypto.randomUUID() })) });
       conversation.message_count = conversation.messages.length; conversation.updated_at = new Date().toISOString(); save(); return structuredClone(conversation);
     }
     case 'conversations.retry': {
@@ -67,9 +72,9 @@ export async function previewRequest(method: string, params: Record<string, unkn
       if (!conversation || !user) throw Error('找不到需要重试的问题。');
       if (user.status === 'completed') return structuredClone(conversation);
       user.status = 'completed'; user.error = null;
-      conversation.messages.push({ id: crypto.randomUUID(), conversation_id: conversation.id, role: 'assistant', content: answer,
+      conversation.messages.push({ id: crypto.randomUUID(), conversation_id: conversation.id, role: 'assistant', content: user.web_search ? '根据联网搜索的模拟摘要，TCP 使用三次握手同步序列号。[1]' : answer,
         position: user.position + 1, status: 'completed', request_id: null, reply_to: user.id, error: null,
-        citations: sources.map(item => ({ ...item, id: crypto.randomUUID() })) });
+        citations: (user.web_search ? [webSource] : sources).map(item => ({ ...item, id: crypto.randomUUID() })) });
       conversation.messages.sort((a, b) => a.position - b.position);
       conversation.message_count = conversation.messages.length; conversation.updated_at = new Date().toISOString(); save(); return structuredClone(conversation);
     }

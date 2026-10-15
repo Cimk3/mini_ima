@@ -140,7 +140,7 @@ fn allowed_method(method: &str) -> bool {
     matches!(method, "initialize" | "kb.list" | "kb.create" | "kb.delete" | "docs.list" | "docs.preview" |
         "docs.import" | "search" | "ask" | "settings.get" | "settings.update" | "settings.qwen" |
         "connections.test" | "doctor" | "conversations.list" | "conversations.get" |
-        "conversations.send" | "conversations.retry" | "conversations.delete" |
+        "conversations.send" | "conversations.retry" | "conversations.delete" | "web.open" |
         "trash.list" | "trash.restore" | "trash.purge" | "trash.empty")
 }
 
@@ -178,7 +178,7 @@ mod tests {
         assert!(allowed_method("ask"));
         for method in ["conversations.list", "conversations.get", "conversations.send",
             "conversations.retry", "conversations.delete", "trash.list", "trash.restore",
-            "trash.purge", "trash.empty"] {
+            "trash.purge", "trash.empty", "web.open"] {
             assert!(allowed_method(method));
         }
         Pending::default().deliver(json!({"id":"unknown", "result":true}));
