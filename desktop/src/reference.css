@@ -18,25 +18,6 @@
   --success: #16804b;
   --success-soft: #e8f5ed;
 }
-:root[data-theme="dark"] {
-  --canvas: #181b2c;
-  --surface: #23273c;
-  --surface-subtle: #292d45;
-  --surface-hover: #343551;
-  --text: #edf0ff;
-  --text-secondary: #c5cce5;
-  --text-muted: #a3aecb;
-  --line: #393e58;
-  --input-line: #626987;
-  --accent: #a398ff;
-  --accent-hover: #b4aaff;
-  --accent-soft: #393453;
-  --accent-text: #c2baff;
-  --accent-foreground: #211d3c;
-  --focus: #c3baff;
-  --success: #a0ddbd;
-  --success-soft: #223e32;
-}
 .sr-only { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; margin: -1px !important; overflow: hidden !important; clip-path: inset(50%) !important; white-space: nowrap !important; border: 0 !important; }
 body { background: var(--canvas); }
 .app-shell { grid-template-columns: 240px minmax(0, 1fr); grid-template-rows: 76px minmax(0, 1fr); gap: 0 10px; padding: 0 10px 7px; border-radius: 16px; background: linear-gradient(120deg, #f1f3fa, #edf0f8 65%, #f6f7fc); }
@@ -226,6 +207,31 @@ body { background: var(--canvas); }
 [data-theme="dark"] .user-question h2 { background: var(--accent-soft); color: var(--text); }
 [data-theme="dark"] .answer-bottom .text-button, [data-theme="dark"] .source-pagination > .icon-button, [data-theme="dark"] .source-open-button, [data-theme="dark"] .source-zoom select { background: var(--surface-subtle); color: var(--text-secondary); }
 [data-theme="dark"] .source-line-badge { background: var(--surface-subtle); color: var(--text-secondary); }
+[data-theme="dark"] .titlebar .brand-mark,
+[data-theme="dark"] .assistant-avatar,
+[data-theme="dark"] .recent-more svg { background: var(--surface-hover); color: var(--accent-text); }
+[data-theme="dark"] .window-controls button { color: var(--text-secondary); }
+[data-theme="dark"] .window-controls button:hover { background: var(--surface-hover); }
+[data-theme="dark"] .window-controls .close-window:hover { background: #da3633; color: var(--accent-foreground); }
+[data-theme="dark"] .primary-nav button.selected > svg { fill: var(--accent-text); stroke: var(--accent-foreground); }
+[data-theme="dark"] .library-item > svg { color: var(--text-muted); fill: var(--surface-hover); }
+[data-theme="dark"] .new-question,
+[data-theme="dark"] .source-empty svg { color: var(--text-muted); }
+[data-theme="dark"] .header-actions .refresh-button { border-color: var(--line); }
+[data-theme="dark"] .ask-suggestions button { background: var(--surface); }
+[data-theme="dark"] .global-search:focus-within,
+[data-theme="dark"] .ask-composer:focus-within { border-color: var(--focus); box-shadow: 0 0 0 3px #1f6feb4d; }
+[data-theme="dark"] .send-button { background: var(--accent); color: var(--accent-foreground); box-shadow: none; }
+[data-theme="dark"] .send-button:not(:disabled):hover { background: var(--accent-hover); }
+[data-theme="dark"] .answer-markdown ol > li::before { background: var(--accent-soft); color: var(--accent-text); }
+[data-theme="dark"] .citation-file-icon,
+[data-theme="dark"] .source-file-icon,
+[data-theme="dark"] .recent-file { background: var(--accent); color: var(--accent-foreground) !important; }
+[data-theme="dark"] .source-view-tabs > button.selected { border-color: var(--input-line); box-shadow: none; }
+[data-theme="dark"] .related-sources > button.selected { border-color: var(--accent); }
+[data-theme="dark"] .selected .source-line-badge,
+[data-theme="dark"] .source-page strong,
+[data-theme="dark"] .source-page mark { background: var(--accent-soft); color: var(--accent-text); }
 @media (max-width: 1279px) and (min-width: 768px) {
   .app-shell { grid-template-columns: 216px minmax(0, 1fr); }
   .workspace-content.with-source { grid-template-columns: minmax(0, 1fr) 350px; }

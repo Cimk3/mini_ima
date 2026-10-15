@@ -33,30 +33,31 @@
 }
 
 :root[data-theme="dark"] {
+  /* GitHub Dark Default / Primer: shared by every desktop workspace. */
   color-scheme: dark;
-  --canvas: #171d27;
-  --surface: #1e2633;
-  --surface-subtle: #242f3e;
-  --surface-hover: #2a3647;
-  --text: #edf1f7;
-  --text-secondary: #bac6d8;
-  --text-muted: #a0b0c7;
-  --line: #39485c;
-  --input-line: #697b94;
-  --accent: #86a6ff;
-  --accent-hover: #a0b8ff;
-  --accent-soft: #273b65;
-  --accent-text: #b3c8ff;
-  --accent-foreground: #102143;
-  --success: #a0ddbd;
-  --success-soft: #223e32;
-  --danger: #ffb4c0;
-  --danger-soft: #492936;
-  --pending: #f0d492;
-  --pending-soft: #423a25;
-  --focus: #a0b9ff;
-  --overlay: #070e1ba6;
-  --shadow: 0 18px 60px #080f1b80;
+  --canvas: #0d1117;
+  --surface: #161b22;
+  --surface-subtle: #0d1117;
+  --surface-hover: #21262d;
+  --text: #c9d1d9;
+  --text-secondary: #b1bac4;
+  --text-muted: #8b949e;
+  --line: #30363d;
+  --input-line: #484f58;
+  --accent: #1f6feb;
+  --accent-hover: #1158c7;
+  --accent-soft: #388bfd26;
+  --accent-text: #58a6ff;
+  --accent-foreground: #ffffff;
+  --success: #3fb950;
+  --success-soft: #23863626;
+  --danger: #f85149;
+  --danger-soft: #f8514926;
+  --pending: #d29922;
+  --pending-soft: #bb800926;
+  --focus: #58a6ff;
+  --overlay: #010409cc;
+  --shadow: 0 18px 60px #01040980;
 }
 
 * { box-sizing: border-box; }
