@@ -89,6 +89,8 @@ npm.cmd run desktop:build
 
 完整构建产物位于 `desktop/dist/Miniima`，并生成带版本号的 ZIP。发布目录每次重新组装，仅含两个程序和由 `RELEASE_README.md` 生成的说明；说明链接指向该版本的 GitHub 文档。构建脚本安装匹配当前版本的核心 wheel，以便将 C++ 扩展、迁移 SQL、模型客户端和运行组件完整打包。核心 wheel 的 CMake 中间产物也保存在 `desktop/build/core`，不会重建 CLI 的虚拟环境。
 
+发布脚本会将 Rust 二进制中的本机用户目录和工程源码路径映射为通用构建路径，避免随程序分发本机编译路径；现有 Rust 编译选项仍会保留。
+
 后台注册为 Tauri 的 `externalBin`，由 Rust 管理启动、请求匹配和完整进程树回收。架构参考：[Tauri 官方 sidecar 说明](https://v2.tauri.app/develop/sidecar/)。
 
 ## 测试

@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "test": "vitest run",
     "desktop:dev": "node scripts/backend.mjs && tauri dev",
-    "desktop:build": "node scripts/backend.mjs && tauri build --no-bundle && node scripts/package.mjs",
+    "desktop:build": "node scripts/build.mjs",
     "tauri": "tauri"
   },
   "dependencies": {
