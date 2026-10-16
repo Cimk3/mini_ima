@@ -35,6 +35,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     run(path.join(desktop, 'scripts', 'backend.mjs'), [], env);
     run(path.join(desktop, 'node_modules', '@tauri-apps', 'cli', 'tauri.js'), ['build', '--no-bundle'], env);
     run(path.join(desktop, 'scripts', 'package.mjs'), [], env);
+    run(path.join(desktop, 'scripts', 'update-manifest.mjs'), [], env);
   } catch (error) {
     console.error(error.message);
     process.exitCode = 1;

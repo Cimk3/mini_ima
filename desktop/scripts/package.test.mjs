@@ -4,6 +4,8 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSyn
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createPackage } from './package.mjs';
+import { createUpdateManifest } from './update-manifest.mjs';
+import { createHash } from 'node:crypto';
 
 function fixture() {
   const base = fileURLToPath(new URL('../build/package-tests/', import.meta.url));
@@ -37,5 +39,20 @@ test('missing build input leaves the previous application directory untouched', 
     rmSync(path.join(root, 'build/backend/miniima-backend.exe'));
     assert.throws(() => createPackage(root, { archive: false }));
     assert.equal(readFileSync(path.join(root, 'dist/Miniima/old.log'), 'utf8'), 'old log');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('public update manifest matches the exact archive and fixed release URL', () => {
+  const root = fixture();
+  try {
+    const payload = Buffer.from('an isolated test archive');
+    writeFileSync(path.join(root, 'dist/Mini-ima-0.2.0-windows-x64.zip'), payload);
+    const manifest = JSON.parse(readFileSync(createUpdateManifest(root), 'utf8'));
+    assert.equal(manifest.tag_name, 'v0.2.0');
+    assert.equal(manifest.assets[0].size, payload.length);
+    assert.equal(manifest.assets[0].digest, 'sha256:' + createHash('sha256').update(payload).digest('hex'));
+    assert.equal(manifest.assets[0].browser_download_url,
+      'https://github.com/Cimk3/mini_ima/releases/download/v0.2.0/Mini-ima-0.2.0-windows-x64.zip');
+    assert.ok(!manifest.body.includes('{{VERSION}}'));
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

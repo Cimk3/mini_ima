@@ -19,6 +19,8 @@ import httpx
 from miniima.errors import MiniimaError
 
 LATEST = 'https://api.github.com/repos/Cimk3/mini_ima/releases/latest'
+RELEASE_MANIFEST = 'https://github.com/Cimk3/mini_ima/releases/latest/download/miniima-update.json'
+CHECK_CACHE_SECONDS = 60
 FILES = ('Miniima.exe', 'miniima-backend.exe', 'README.md')
 MAX_BYTES = 256 * 1024 * 1024
 HOSTS = {'api.github.com', 'github.com', 'release-assets.githubusercontent.com', 'objects.githubusercontent.com'}
@@ -26,6 +28,12 @@ HOSTS = {'api.github.com', 'github.com', 'release-assets.githubusercontent.com',
 
 class UpdateError(MiniimaError):
     pass
+
+
+class SourceUnavailable(UpdateError):
+    def __init__(self, message: str, retry_after: float = 60):
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
 def version(value: str) -> tuple[int, int, int]:
@@ -79,6 +87,11 @@ class UpdateService:
             headers={'User-Agent': 'Mini-ima-updater', 'Accept': 'application/vnd.github+json'}, follow_redirects=False))
         self._lock = threading.Lock()
         self._download_lock = threading.Lock()
+        self._check_lock = threading.Lock()
+        self._cached_release = None
+        self._cache_until = 0.0
+        self._api_retry_at = 0.0
+        self._api_error = None
         self._progress = {'phase': 'idle', 'received': 0, 'total': 0}
 
     def status(self) -> dict:
@@ -99,27 +112,73 @@ class UpdateService:
                     url = urljoin(url, response.headers.get('location', ''))
                     continue
                 if response.status_code in (403, 429):
-                    raise UpdateError('更新服务暂时限制访问，请稍后重试。')
+                    retry_after = 60.0
+                    try:
+                        if response.headers.get('retry-after'):
+                            retry_after = max(1, float(response.headers['retry-after']))
+                        elif response.headers.get('x-ratelimit-reset'):
+                            retry_after = max(1, float(response.headers['x-ratelimit-reset']) - time.time())
+                    except ValueError:
+                        pass
+                    raise SourceUnavailable('更新服务暂时限制访问，请稍后重试。', retry_after)
                 if response.status_code == 404:
                     yield response
                     return
                 if response.status_code != 200:
-                    raise UpdateError('更新服务暂时不可用，请稍后重试。')
+                    raise SourceUnavailable('更新服务暂时不可用，请稍后重试。')
                 yield response
                 return
         raise UpdateError('更新下载重定向次数过多。')
 
-    def _release(self, client, current: str) -> tuple[dict, dict | None]:
-        current_numbers = version(current)
-        with self.response(client, LATEST) as response:
+    def _read_release(self, client, url: str) -> dict | None:
+        with self.response(client, url) as response:
             if response.status_code == 404:
-                return {'current_version': current, 'latest_version': current, 'available': False}, None
+                return None
             payload = bytearray()
             for data in response.iter_bytes():
                 payload.extend(data)
                 if len(payload) > 1024 * 1024:
                     raise UpdateError('更新服务响应过大。')
         release = json.loads(payload)
+        if not isinstance(release, dict) or not isinstance(release.get('assets', []), list):
+            raise UpdateError('更新服务返回的版本信息无效。')
+        version(release.get('tag_name', ''))
+        return release
+
+    def _metadata(self, client, *, refresh=False) -> dict | None:
+        # Coalesce startup/manual checks; installation always fetches fresh metadata.
+        with self._check_lock:
+            if not refresh and time.monotonic() < self._cache_until:
+                return self._cached_release
+            sources = [RELEASE_MANIFEST]
+            error = self._api_error
+            if time.monotonic() >= self._api_retry_at:
+                sources.insert(0, LATEST)
+                error = None
+            for source in sources:
+                try:
+                    release = self._read_release(client, source)
+                except (SourceUnavailable, httpx.HTTPError) as unavailable:
+                    error = error or unavailable
+                    if source == LATEST:
+                        self._api_retry_at = time.monotonic() + getattr(unavailable, 'retry_after', 60)
+                        self._api_error = unavailable
+                    continue
+                if release is not None:
+                    self._cached_release = release
+                    self._cache_until = time.monotonic() + CHECK_CACHE_SECONDS
+                    return release
+            if error is not None:
+                raise error  # An unavailable fallback must never imply "up to date".
+            self._cached_release = None
+            self._cache_until = time.monotonic() + CHECK_CACHE_SECONDS
+            return None
+
+    def _release(self, client, current: str, *, refresh=False) -> tuple[dict, dict | None]:
+        current_numbers = version(current)
+        release = self._metadata(client, refresh=refresh)
+        if release is None:
+            return {'current_version': current, 'latest_version': current, 'available': False}, None
         tag = release.get('tag_name', '')
         latest_numbers = version(tag)
         available = latest_numbers > current_numbers and not release.get('draft') and not release.get('prerelease')
@@ -160,7 +219,7 @@ class UpdateService:
             except OSError as error:
                 raise UpdateError('应用目录不可写，请将应用放到可写目录后重试。') from error
             with self.client_factory() as client:
-                result, asset = self._release(client, current)
+                result, asset = self._release(client, current, refresh=True)
                 if not asset:
                     raise UpdateError(result.get('reason', '当前已是最新版本。'))
                 if expected_version is not None and result['latest_version'] != expected_version:

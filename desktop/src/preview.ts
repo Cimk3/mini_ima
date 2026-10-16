@@ -1,5 +1,6 @@
 import type { Bootstrap, ConversationDetail, KnowledgeBase, PublicSettings, Source, TrashItem } from './types';
 import { referenceDocuments, referenceSources, referenceAnswer } from './referencePreview';
+import { APP_VERSION } from './version';
 
 if (import.meta.env.DEV && new URLSearchParams(window.location.search).has('reference')) void import('./capture.css');
 const reference = new URLSearchParams(window.location.search).has('reference');
@@ -38,7 +39,7 @@ export async function previewRequest(method: string, params: Record<string, unkn
   const snapshot = { saved: settings, effective: settings, overrides: [], home: reference ? 'preview:reference-v2' : 'preview:normal-v2' };
   switch (method) {
     case 'initialize': return { knowledge_bases: activeBases(), settings: snapshot } satisfies Bootstrap;
-    case 'updates.check': return { current_version: '0.2.0', latest_version: '0.2.0', available: false, can_install: false };
+    case 'updates.check': return { current_version: APP_VERSION, latest_version: APP_VERSION, available: false, can_install: false };
     case 'updates.status': return { phase: 'idle', received: 0, total: 0 };
     case 'conversations.rename': {
       const item = activeConversations().find(item => item.id === params.conversation_id);
