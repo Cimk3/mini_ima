@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, copyFileSync, readdirSync } from 'node:fs';
+import { existsSync, mkdirSync, copyFileSync, readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -21,7 +21,8 @@ mkdirSync(wheels, { recursive: true });
 const coreBuild = path.join(desktop, 'build', 'core', '{wheel_tag}');
 run(python, ['-m', 'pip', 'wheel', '--no-build-isolation', '--no-deps',
   '--config-settings', `build-dir=${coreBuild}`, root, '--wheel-dir', wheels]);
-const wheel = readdirSync(wheels).find(name => name.startsWith('miniima-') && name.endsWith('.whl'));
+const version = JSON.parse(readFileSync(path.join(desktop, 'package.json'), 'utf8')).version;
+const wheel = readdirSync(wheels).find(name => name.startsWith(`miniima-${version}-`) && name.endsWith('.whl'));
 if (!wheel) throw new Error('Core wheel not found');
 run(python, ['-m', 'pip', 'install', path.join(wheels, wheel)]);
 run(python, ['-m', 'pip', 'install', '--force-reinstall', '--no-deps', path.join(wheels, wheel)]);

@@ -19,6 +19,7 @@ from miniima.errors import ConfigurationError, MiniimaError, ProviderError
 from miniima.providers.openai_compatible import OpenAICompatibleProvider
 from miniima.storage.repository import Repository
 from miniima.vector import create_index
+from updates import UpdateService
 
 
 class RequestError(MiniimaError):
@@ -42,6 +43,7 @@ class Dispatcher:
         self.repository = Repository(self.home)
         self.provider_factory = provider_factory
         self.initialized = False
+        self.updates = UpdateService()
 
     def settings_snapshot(self) -> dict:
         saved = load_settings(self.home, use_env=False)
@@ -79,7 +81,16 @@ class Dispatcher:
                 self.initialized = True
             return {"knowledge_bases": self.repository.list_kbs(), "settings": self.settings_snapshot()}
         if method == 'conversations.list':
-            return self.repository.list_conversations(params.get('offset', 0), params.get('limit', 50))
+            return self.repository.list_conversations(params.get('offset', 0), params.get('limit', 50), params.get('query', ''))
+        if method == 'conversations.rename':
+            return self.repository.rename_conversation(self.text(params, 'conversation_id'), self.text(params, 'title'))
+        if method == 'updates.check':
+            return self.updates.check(self.text(params, 'current_version'))
+        if method == 'updates.prepare':
+            return self.updates.prepare(self.text(params, 'current_version'), Path(self.text(params, 'app_dir')),
+                                        self.text(params, 'expected_version'))
+        if method == 'updates.status':
+            return self.updates.status()
         if method == 'conversations.get':
             if 'request_id' in params:
                 conversation, _ = self.repository.retry_details(self.text(params, 'request_id'))
@@ -218,7 +229,7 @@ def serve(dispatcher: Dispatcher, input_stream: TextIO, output_stream: TextIO) -
             except (ValueError, TypeError):
                 write({"id": None, "error": {"code": "request", "message": "请求不是有效的 JSON。"}})
                 continue
-            if isinstance(request, dict) and request.get('method') in ('conversations.send', 'conversations.retry'):
+            if isinstance(request, dict) and request.get('method') in ('conversations.send', 'conversations.retry', 'updates.check', 'updates.prepare'):
                 executor.submit(process, request)
                 continue
             response = dispatcher.handle(request)

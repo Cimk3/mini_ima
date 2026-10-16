@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { BookOpen, Plus, FileText, Search, Sparkles, Upload, Settings2, Trash2, X,
   Loader2, ChevronRight, Check, AlertCircle, Layers, Database,
-  MessageCircleMore, MessageSquare, Archive, ChevronDown, History, MoreHorizontal, PanelRightOpen, PanelRightClose } from 'lucide-react';
+  MessageCircleMore, MessageSquare, Archive, ChevronDown, History, MoreHorizontal, PanelRightOpen, PanelRightClose, Pencil } from 'lucide-react';
 import { request, chooseFiles, confirmAction, errorMessage, handleWindowClose } from './bridge';
 import SettingsDialog from './components/SettingsDialog';
 import NewKnowledgeBaseDialog from './components/NewKnowledgeBaseDialog';
@@ -11,6 +11,9 @@ import { useDialog } from './components/useDialog';
 import { useMediaQuery } from './hooks/useMediaQuery';
 import ChatWorkspace from './components/ChatWorkspace';
 import ConversationTabs from './components/ConversationTabs';
+import RenameConversationDialog from './components/RenameConversationDialog';
+import { useUpdates } from './hooks/useUpdates';
+import { UpdateBanner } from './components/UpdateSection';
 import TrashView from './components/TrashView';
 import { readWorkspace, writeWorkspace, draft, draftKey } from './workspaceStorage';
 import type { Bootstrap, ConversationDetail, ConversationPage, ConversationSummary, ConversationWindow, DocumentRecord, ImportEntry, ImportResult, KnowledgeBase, Outbox, SettingsSnapshot, Source, TrashItem } from './types';
@@ -50,6 +53,10 @@ export default function App() {
   const [history, setHistory] = useState<ConversationSummary[]>([]);
   const [historyMore, setHistoryMore] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyQuery, setHistoryQuery] = useState('');
+  const historyFilter = useRef('');
+  const [renameTarget, setRenameTarget] = useState<ConversationSummary | null>(null);
+  const [renameError, setRenameError] = useState<string | null>(null);
   const [trash, setTrash] = useState<TrashItem[]>([]);
   const [trashLoading, setTrashLoading] = useState(false);
   const [sourceGroup, setSourceGroup] = useState<Source[]>([]);
@@ -59,6 +66,7 @@ export default function App() {
   const [expandedSource, setExpandedSource] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [startup, setStartup] = useState(true);
+  const updates = useUpdates(startup, !!busy, state => setBusy(state ? 'update' : null));
   const [docsLoading, setDocsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -86,7 +94,7 @@ export default function App() {
   const navigationVisible = compactNavigation && navigationOpen;
   const navigationRef = useDialog<HTMLElement>(() => setNavigationOpen(false), false, navigationTrigger.current, navigationVisible);
   const base = bases.find(kb => kb.id === selected);
-  const modalOpen = (settingsOpen && !!settings) || newOpen;
+  const modalOpen = (settingsOpen && !!settings) || newOpen || !!renameTarget;
   const sourceModal = !!source && overlaySource;
   busyRef.current = !!busy;
   activeConversation.current = activeId;
@@ -104,12 +112,13 @@ export default function App() {
 
   useEffect(() => {
     contentRef.current?.scrollTo?.({ top: 0 });
-    answerRef.current?.scrollTo?.({ top: 0 });
   }, [tab, selected]);
 
   useEffect(() => {
-    if (tab === 'ask') answerRef.current?.scrollTo?.({ top: answerRef.current.scrollHeight });
-  }, [conversation, pendingTurn, tab]);
+    if (startup) return;
+    const timer = window.setTimeout(() => { void loadHistory(); }, 200);
+    return () => window.clearTimeout(timer);
+  }, [historyQuery, startup]);
 
   useEffect(() => {
     try { localStorage.setItem('miniima-sidebar-hidden', String(sidebarHidden)); } catch { /* Optional layout preference. */ }
@@ -216,12 +225,32 @@ export default function App() {
     const version = ++historyVersion.current;
     setHistoryLoading(true);
     try {
-      const page = await request<ConversationPage>('conversations.list', { offset, limit: 50 });
+      const page = await request<ConversationPage>('conversations.list', { offset, limit: 50, query: historyFilter.current });
       if (version !== historyVersion.current) return;
       setHistory(old => offset ? [...new Map([...old, ...page.items].map(item => [item.id, item])).values()] : page.items);
       setHistoryMore(page.has_more);
-    } catch (e) { setError(errorMessage(e)); }
+    } catch (e) { if (version === historyVersion.current) setError(errorMessage(e)); }
     finally { if (version === historyVersion.current) setHistoryLoading(false); }
+  }
+
+  function searchHistory(value: string) {
+    historyFilter.current = value;
+    ++historyVersion.current;
+    setHistoryQuery(value); setHistory([]); setHistoryMore(false); setHistoryLoading(true);
+  }
+
+  async function renameConversation(title: string) {
+    if (!renameTarget || busy) return;
+    const id = renameTarget.id;
+    setBusy('rename'); setRenameError(null);
+    try {
+      const detail = await request<ConversationDetail>('conversations.rename', { conversation_id: id, title });
+      updateWindows(items => items.map(item => item.conversationId === id ? { ...item, title: detail.title } : item));
+      setConversation(old => old?.id === id ? { ...old, title: detail.title, updated_at: detail.updated_at } : old);
+      setRenameTarget(null); setMessage('对话标题已保存。');
+      await loadHistory();
+    } catch (e) { setRenameError(errorMessage(e)); }
+    finally { setBusy(null); }
   }
 
   async function loadTrash() {
@@ -548,12 +577,17 @@ export default function App() {
           className={tab === 'trash' ? 'selected' : ''} onClick={() => { changeTab('trash'); setNavigationOpen(false); }}><Trash2 size={21} />回收站</button>
       </div>
       <div className="history-heading sidebar-label">历史对话<span>{historyLoading && <Loader2 size={14} className="spin" />}</span></div>
+      <div className="history-search"><Search size={15} /><input aria-label="搜索历史对话" placeholder="搜索对话标题" maxLength={200} disabled={startup}
+        value={historyQuery} onChange={event => searchHistory(event.target.value)} />
+        {historyQuery && <button className="icon-button" aria-label="清空历史搜索" onClick={() => searchHistory('')}><X size={14} /></button>}</div>
       <nav className="conversation-history" aria-label="历史对话">
         {history.map(item => <div className={`history-row ${activeId === item.id ? 'selected' : ''}`} key={item.id}>
           <button className="history-open" aria-current={activeId === item.id ? 'true' : undefined} title={item.title} onClick={() => void openConversation(item.id)}><MessageSquare size={16} /><span><strong>{item.title}</strong><small>{item.knowledge_base_name}</small></span></button>
+          <button className="icon-button history-rename" title="重命名" aria-label={`重命名对话：${item.title}`} disabled={!!busy || conversationLoading}
+            onClick={event => { modalTrigger.current = event.currentTarget; setRenameTarget(item); setRenameError(null); }}><Pencil size={14} /></button>
           <button className="icon-button history-delete" aria-label={`删除对话：${item.title}`} disabled={!!busy} onClick={() => void deleteConversation(item)}><Trash2 size={14} /></button>
         </div>)}
-        {!history.length && !historyLoading && <p className="sidebar-empty">新问题会保存在这里</p>}
+        {!history.length && !historyLoading && <p className="sidebar-empty">{historyQuery ? '未找到匹配的对话' : '新问题会保存在这里'}</p>}
         {historyMore && <button className="history-more text-button" disabled={historyLoading} onClick={() => void loadHistory(history.length)}>加载更多对话</button>}
       </nav>
       <div className="sidebar-label">我的知识库 <button className="icon-button" aria-label="新建知识库" title="新建知识库" disabled={!!busy || startup} onClick={openNew}><Plus size={19} /></button></div>
@@ -725,7 +759,12 @@ export default function App() {
       <SourceDrawer source={source} sources={relatedSources} modal returnFocusTo={sourceTrigger.current} onClose={() => setSource(null)} onSelect={setSource} onExpandedChange={setExpandedSource}
         onOpenWeb={url => { void request('web.open', { url }).catch(e => setError(errorMessage(e))); }} />
     </div>}
-    {settingsOpen && settings && <SettingsDialog returnFocusTo={modalTrigger.current} snapshot={settings} onClose={() => setSettingsOpen(false)} onSaved={setSettings} onBusy={state => setBusy(state ? 'settings' : null)} />}
+    <UpdateBanner updates={updates} disabled={!!busy || startup || modalOpen} onDetails={() => {
+      modalTrigger.current = document.activeElement as HTMLElement; setSettingsOpen(true);
+    }} />
+    {settingsOpen && settings && <SettingsDialog returnFocusTo={modalTrigger.current} snapshot={settings} updates={updates} onClose={() => setSettingsOpen(false)} onSaved={setSettings} onBusy={state => setBusy(state ? 'settings' : null)} />}
     {newOpen && <NewKnowledgeBaseDialog returnFocusTo={modalTrigger.current} name={newName} busy={!!busy} error={error} onName={setNewName} onClose={() => setNewOpen(false)} onSubmit={createBase} />}
+    {renameTarget && <RenameConversationDialog title={renameTarget.title} busy={busy === 'rename'} error={renameError} returnFocusTo={modalTrigger.current}
+      onClose={() => setRenameTarget(null)} onSubmit={title => void renameConversation(title)} />}
   </div>;
 }

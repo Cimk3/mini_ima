@@ -132,6 +132,8 @@ impl Bridge {
         if let Some(mut child) = self.child.lock().unwrap().take() { let _ = child.kill(); let _ = child.wait(); }
         self.pending.fail_all();
     }
+
+    pub fn is_busy(&self) -> bool { !self.pending.requests.lock().unwrap().is_empty() }
 }
 
 impl Drop for Bridge { fn drop(&mut self) { self.shutdown(); } }
@@ -140,7 +142,8 @@ fn allowed_method(method: &str) -> bool {
     matches!(method, "initialize" | "kb.list" | "kb.create" | "kb.delete" | "docs.list" | "docs.preview" |
         "docs.import" | "search" | "ask" | "settings.get" | "settings.update" | "settings.qwen" |
         "connections.test" | "doctor" | "conversations.list" | "conversations.get" |
-        "conversations.send" | "conversations.retry" | "conversations.delete" | "web.open" |
+        "conversations.send" | "conversations.retry" | "conversations.delete" | "conversations.rename" | "web.open" |
+        "updates.check" | "updates.prepare" | "updates.status" |
         "trash.list" | "trash.restore" | "trash.purge" | "trash.empty")
 }
 

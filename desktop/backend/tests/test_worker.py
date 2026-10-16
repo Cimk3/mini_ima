@@ -62,6 +62,15 @@ def call(dispatcher, method, **params):
     return response["result"]
 
 
+def test_history_title_search_and_rename_do_not_require_api(dispatcher):
+    kb = call(dispatcher, 'kb.create', name='标题检索')
+    identifier = dispatcher.repository.save_answer(kb['id'], '之前的问题', '已有回答', [])
+    renamed = call(dispatcher, 'conversations.rename', conversation_id=identifier, title='我的新标题')
+    assert renamed['title'] == '我的新标题'
+    assert call(dispatcher, 'conversations.list', query='新标题')['items'][0]['id'] == identifier
+    assert call(dispatcher, 'conversations.list', query='之前')['total'] == 0
+
+
 def test_web_search_ipc_validates_mode_and_saves_web_citation(dispatcher, monkeypatch):
     monkeypatch.setattr('miniima.application.conversations.search_web', lambda question: [{
         'id': 'web:test', 'chunk_id': None, 'document_id': 'web:test', 'filename': 'TCP 规范',

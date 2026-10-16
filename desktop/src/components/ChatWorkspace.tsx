@@ -1,5 +1,5 @@
-import type { RefObject } from 'react';
-import { BookOpen, ChevronDown, ChevronRight, Copy, Globe, Loader2, Paperclip, RefreshCw, Send, Sparkles } from 'lucide-react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
+import { ArrowDown, BookOpen, ChevronDown, ChevronRight, Copy, Globe, Loader2, Paperclip, RefreshCw, Send, Sparkles } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import assistantIcon from '../assets/reference-assistant.png';
@@ -16,6 +16,20 @@ export default function ChatWorkspace({ conversation, pendingQuestion, loading, 
   webSearch: boolean; onWebSearch: (enabled: boolean) => void;
 }) {
   const messages = conversation?.messages || [];
+  const following = useRef(true);
+  const viewedConversation = useRef<string | undefined>(undefined);
+  const [showLatest, setShowLatest] = useState(false);
+  function goLatest() {
+    following.current = true; setShowLatest(false);
+    answerRef.current?.scrollTo?.({ top: answerRef.current.scrollHeight });
+  }
+  useEffect(() => {
+    if (viewedConversation.current !== conversation?.id) {
+      viewedConversation.current = conversation?.id;
+      following.current = true; setShowLatest(false);
+    }
+    if (following.current) answerRef.current?.scrollTo?.({ top: answerRef.current.scrollHeight });
+  }, [conversation, pendingQuestion, loading]);
   const pendingSaved = messages.some(message => message.role === 'user' && message.status === 'pending');
   function renderMessage(message: ChatMessage) {
     if (message.role === 'user') return <div className="chat-turn-user" key={message.id}>
@@ -49,11 +63,15 @@ export default function ChatWorkspace({ conversation, pendingQuestion, loading, 
         <p>基于「{baseName}」中的资料回答，每一条引用，都能追溯到真实来源。</p>
         <div className="ask-suggestions">{['总结这份资料的主要内容', '有哪些关键概念需要理解？', '帮我梳理资料中的核心观点'].map(question =>
           <button key={question} disabled={busy} onClick={() => onSend(undefined, question)}><Sparkles size={17} />{question}<ChevronRight size={16} /></button>)}</div>
-      </div> : <div className="answer-area conversation-messages" ref={answerRef} aria-label="对话消息">
+      </div> : <div className="conversation-scroll-shell"><div className="answer-area conversation-messages" ref={answerRef} aria-label="对话消息" onScroll={event => {
+        const element = event.currentTarget;
+        following.current = element.scrollHeight - element.scrollTop - element.clientHeight < 72;
+        setShowLatest(!following.current);
+      }}>
         {messages.map(renderMessage)}
         {pendingQuestion && !pendingSaved && <><div className="user-question"><span className="sr-only">你的问题</span><h2>{pendingQuestion}</h2></div>
           <div className="turn-pending" role="status"><Loader2 size={17} className="spin" />{webSearch ? '正在联网搜索并整理资料…' : '正在参考知识库回答…'}</div></>}
-      </div>}
+      </div>{showLatest && <button className="back-to-latest secondary-button" onClick={goLatest}><ArrowDown size={15} />回到最新</button>}</div>}
     <form className="ask-composer" onSubmit={onSend}>
       <label className="sr-only" htmlFor="knowledge-question">知识库问题</label>
       <textarea ref={questionRef} id="knowledge-question" aria-label="知识库问题" value={query} onChange={event => onQuery(event.target.value)}

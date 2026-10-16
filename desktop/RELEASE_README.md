@@ -1,0 +1,29 @@
+# Mini-ima {{VERSION}} · Windows x64
+
+## 启动
+
+1. 将压缩包完整解压到可写目录，保持 `Miniima.exe` 与 `miniima-backend.exe` 在同一文件夹。
+2. 双击 `Miniima.exe`。运行需要系统安装 WebView2 Runtime，无需 Python、Node.js 或 Rust。
+3. 首次使用在“模型与设置”中分别填写问答和向量服务的 API Key，保存并测试连接。
+4. 创建知识库，导入 TXT / Markdown，然后搜索或提问。
+
+新输入的 Key 默认可见，可点击眼睛隐藏；已有 Key 留空保存会保留原值。
+
+## 对话与更新
+
+历史列表支持按标题搜索、重命名；多轮对话与引用保存在本机。上翻阅读时不会被新消息强制拉到底部，点击“回到最新”可继续跟随。
+
+应用启动后检查正式版，也可以在设置中的“版本与更新”手动检测。发现新版本时可以稍后处理，或选择“下载并重启更新”：应用会下载并校验 Windows 更新包，退出后替换程序并重新启动；替换或启动失败时尝试恢复旧版。
+
+更新需要网络可访问 GitHub，以及应用目录可写。更新只替换两个程序和这份说明，知识库与 API 配置保留。0.1 尚无内置更新入口，首次升级到 0.2 需手动解压新版。
+
+## 本地数据
+
+默认数据目录为用户目录下的 `.miniima`，可通过 `MINIIMA_HOME` 指定。桌面版和 CLI 使用同一目录即可共用数据。Key 保存在本机 `config.json` 中，请保护数据目录。
+
+模型调用会向配置的服务发送文本、问题与参考片段；联网搜索为可选功能。更新检测仅访问本项目公开 Release，不发送文档、对话或模型 Key。
+
+## 更多说明
+
+- [功能与 CLI 使用](https://github.com/Cimk3/mini_ima/blob/v{{VERSION}}/README.md)
+- [桌面版详细说明](https://github.com/Cimk3/mini_ima/blob/v{{VERSION}}/desktop/README.md)

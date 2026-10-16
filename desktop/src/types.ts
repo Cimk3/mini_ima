@@ -20,3 +20,6 @@ export interface ConversationPage { items: ConversationSummary[]; total: number;
 export interface TrashItem { kind: 'kb' | 'conversation'; id: string; title: string; knowledge_base_name: string; knowledge_base_id: string; deleted_at: string }
 export interface Outbox { kb: string; question: string; request_id: string; conversation_id?: string; web_search?: boolean; window_key?: string }
 export interface ConversationWindow { key: string; kb: string; conversationId: string | null; title: string; draft: string; webSearch: boolean }
+export interface UpdateInfo { current_version: string; can_install: boolean; previous_result?: { success: boolean; message: string } | null }
+export interface ReleaseUpdate extends UpdateInfo { latest_version: string; available: boolean; downloadable?: boolean; notes?: string; size?: number; reason?: string }
+export interface UpdateProgress { phase: string; received: number; total: number }

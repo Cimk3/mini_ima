@@ -255,18 +255,34 @@ class Repository:
             raise MiniimaError('对话不存在或已移入回收站。')
         return dict(row)
 
-    def list_conversations(self, offset: int = 0, limit: int = 50) -> dict:
+    def list_conversations(self, offset: int = 0, limit: int = 50, query: str = '') -> dict:
         if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 100:
             raise MiniimaError('对话分页参数无效。')
-        query = '''FROM conversations c JOIN knowledge_bases k ON k.id=c.knowledge_base_id
+        if not isinstance(query, str) or len(query) > 200:
+            raise MiniimaError('搜索标题最多输入 200 个字符。')
+        term = query.strip()
+        sql = '''FROM conversations c JOIN knowledge_bases k ON k.id=c.knowledge_base_id
             WHERE c.deleted_at IS NULL AND k.deleted_at IS NULL
             AND EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id=c.id)'''
+        arguments: tuple = ()
+        if term:
+            sql += ' AND instr(lower(c.title), lower(?)) > 0'
+            arguments = (term,)
         with self.connection() as connection:
-            total = connection.execute('SELECT COUNT(*) ' + query).fetchone()[0]
+            total = connection.execute('SELECT COUNT(*) ' + sql, arguments).fetchone()[0]
             rows = connection.execute('''SELECT c.*, k.name AS knowledge_base_name,
-                (SELECT COUNT(*) FROM messages m WHERE m.conversation_id=c.id) AS message_count ''' + query +
-                ' ORDER BY c.updated_at DESC,c.id DESC LIMIT ? OFFSET ?', (limit, offset)).fetchall()
+                (SELECT COUNT(*) FROM messages m WHERE m.conversation_id=c.id) AS message_count ''' + sql +
+                ' ORDER BY c.updated_at DESC,c.id DESC LIMIT ? OFFSET ?', (*arguments, limit, offset)).fetchall()
         return {'items': [dict(row) for row in rows], 'total': total, 'has_more': offset + len(rows) < total}
+
+    def rename_conversation(self, identifier: str, title: str) -> dict:
+        if not isinstance(title, str) or not title.strip() or len(title.strip()) > 100:
+            raise MiniimaError('对话标题应为 1–100 个字符。')
+        with self.connection() as connection, connection:
+            self._conversation(connection, identifier)
+            connection.execute('UPDATE conversations SET title=?, updated_at=? WHERE id=?',
+                               (title.strip(), now(), identifier))
+        return self.get_conversation(identifier)
 
     def get_conversation(self, identifier: str) -> dict:
         with self.connection() as connection:

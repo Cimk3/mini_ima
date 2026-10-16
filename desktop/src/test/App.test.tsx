@@ -5,7 +5,8 @@ import App from '../App';
 import SettingsDialog from '../components/SettingsDialog';
 import type { Bootstrap, ConversationDetail, SettingsSnapshot, Source, TrashItem } from '../types';
 
-const mocks = vi.hoisted(() => ({ request: vi.fn(), chooseFiles: vi.fn(), confirmAction: vi.fn(), windowAction: vi.fn() }));
+const mocks = vi.hoisted(() => ({ request: vi.fn(), chooseFiles: vi.fn(), confirmAction: vi.fn(), windowAction: vi.fn(),
+  getUpdateInfo: vi.fn(), prepareUpdate: vi.fn(), installUpdate: vi.fn() }));
 vi.mock('../bridge', () => ({ ...mocks, errorMessage: (error: unknown) => String(error), handleWindowClose: async () => () => {} }));
 const config: SettingsSnapshot = { home: 'C:\\test-home', overrides: [], saved: {
   base_url: 'https://api.deepseek.com', chat_model: 'deepseek-flash', embedding_base_url: 'https://embedding.test/v1',
@@ -33,6 +34,7 @@ beforeEach(() => {
   localStorage.clear();
   conversations = []; trashItems = [];
   vi.clearAllMocks(); mocks.confirmAction.mockResolvedValue(false); mocks.chooseFiles.mockResolvedValue([]);
+  mocks.getUpdateInfo.mockResolvedValue({ current_version: '0.2.0', can_install: false });
   vi.stubGlobal('matchMedia', vi.fn((query: string) => ({
     matches: false, media: query, onchange: null,
     addEventListener: vi.fn(), removeEventListener: vi.fn(),
@@ -42,7 +44,8 @@ beforeEach(() => {
     if (method === 'initialize') return { knowledge_bases: bases, settings: config } satisfies Bootstrap;
     if (method === 'kb.list') return bases.filter(kb => !trashItems.some(item => item.kind === 'kb' && item.id === kb.id));
     if (method === 'conversations.list') {
-      const visible = conversations.filter(conversation => !trashItems.some(item => item.id === conversation.id || (item.kind === 'kb' && item.id === conversation.knowledge_base_id)));
+      const visible = conversations.filter(conversation => !trashItems.some(item => item.id === conversation.id || (item.kind === 'kb' && item.id === conversation.knowledge_base_id)))
+        .filter(item => item.title.toLocaleLowerCase().includes(String(params.query || '').trim().toLocaleLowerCase()));
       const offset = Number(params.offset || 0);
       return { items: visible.slice(offset, offset + 50), total: visible.length, has_more: offset + 50 < visible.length };
     }
@@ -51,6 +54,11 @@ beforeEach(() => {
         .find(item => params.request_id ? item.messages.some(message => message.request_id === params.request_id) : item.id === params.conversation_id);
       if (!found) throw Error('对话不存在'); return structuredClone(found);
     }
+    if (method === 'conversations.rename') {
+      const item = conversations.find(item => item.id === params.conversation_id)!;
+      item.title = String(params.title); return structuredClone(item);
+    }
+    if (method === 'updates.check') return { current_version: '0.2.0', latest_version: '0.2.0', available: false, can_install: false };
     if (method === 'conversations.send') {
       const prior = conversations.find(item => item.id === params.conversation_id);
       const detail = conversationFor(String(params.question), undefined, prior?.id || (conversations.length ? `saved-${conversations.length}` : 'saved'), prior);
@@ -84,6 +92,33 @@ function usePhoneViewport() {
     addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
   }));
 }
+
+test('v02 rename synchronizes history and open tab and survives reopening', async () => {
+  conversations = [conversationFor('原来的问题')];
+  const user = userEvent.setup(); const view = render(<App />);
+  await user.click(await screen.findByRole('button', { name: '原来的问题 网络' }));
+  await screen.findByRole('button', { name: '切换对话：原来的问题' });
+  await user.click(screen.getByRole('button', { name: '重命名对话：原来的问题' }));
+  await user.clear(screen.getByLabelText('对话标题'));
+  expect(screen.getByRole('button', { name: '保存标题' })).toBeDisabled();
+  await user.type(screen.getByLabelText('对话标题'), '我的网络复习');
+  await user.click(screen.getByRole('button', { name: '保存标题' }));
+  await screen.findByRole('button', { name: '切换对话：我的网络复习' });
+  view.unmount(); render(<App />);
+  await screen.findByRole('button', { name: '切换对话：我的网络复习' });
+});
+
+test('v02 history title search includes records beyond the first fifty', async () => {
+  conversations = Array.from({ length: 55 }, (_, index) => conversationFor(`普通问题${index}`, undefined, `item-${index}`));
+  conversations.push(conversationFor('查找这条旧记录', undefined, 'old-target'));
+  const user = userEvent.setup(); render(<App />);
+  await screen.findByRole('button', { name: '加载更多对话' });
+  expect(screen.queryByRole('button', { name: '查找这条旧记录 网络' })).not.toBeInTheDocument();
+  await user.type(screen.getByLabelText('搜索历史对话'), '旧记录');
+  await screen.findByRole('button', { name: '查找这条旧记录 网络' });
+  await user.click(screen.getByLabelText('清空历史搜索'));
+  await screen.findByRole('button', { name: '普通问题0 网络' });
+});
 
 test('conversation windows keep separate drafts, switch, close, and restore after restart', async () => {
   const user = userEvent.setup(); const view = render(<App />); await screen.findByText('network.md');

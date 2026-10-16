@@ -2,8 +2,25 @@ import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open, confirm } from '@tauri-apps/plugin-dialog';
 import { previewRequest } from './preview';
+import { APP_VERSION } from './version';
+import type { UpdateInfo } from './types';
 
 const preview = import.meta.env.DEV && new URLSearchParams(window.location.search).has('preview');
+
+export async function getUpdateInfo(): Promise<UpdateInfo> {
+  if (preview) return { current_version: APP_VERSION, can_install: false };
+  return invoke<UpdateInfo>('update_info');
+}
+
+export async function prepareUpdate(version: string): Promise<{ version: string }> {
+  if (preview) throw new Error('开发预览不安装更新。');
+  return invoke('prepare_update', { version });
+}
+
+export async function installUpdate(): Promise<void> {
+  if (preview) throw new Error('开发预览不安装更新。');
+  return invoke('install_update');
+}
 
 export async function request<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
   if (preview) return previewRequest(method, params) as Promise<T>;

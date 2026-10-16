@@ -3,6 +3,8 @@ import { Eye, EyeOff, X, Check, Loader2, SlidersHorizontal, Wifi } from 'lucide-
 import { request, errorMessage } from '../bridge';
 import type { SettingsSnapshot, ConnectionResult } from '../types';
 import { useDialog } from './useDialog';
+import UpdateSection from './UpdateSection';
+import type { UpdateController } from '../hooks/useUpdates';
 
 export function formValues(snapshot: SettingsSnapshot) {
   const s = snapshot.saved;
@@ -14,9 +16,10 @@ export function formValues(snapshot: SettingsSnapshot) {
     retrieval_engine: s.retrieval_engine, min_score: s.min_score, context_tokens: s.context_tokens };
 }
 
-export default function SettingsDialog({ snapshot, onClose, onSaved, onBusy, returnFocusTo }: {
+export default function SettingsDialog({ snapshot, onClose, onSaved, onBusy, returnFocusTo, updates }: {
   snapshot: SettingsSnapshot; onClose: () => void; onSaved: (snapshot: SettingsSnapshot) => void; onBusy: (busy: boolean) => void;
   returnFocusTo?: HTMLElement | null;
+  updates?: UpdateController;
 }) {
   const [form, setForm] = useState(() => formValues(snapshot));
   const [showChatKey, setShowChatKey] = useState(true);
@@ -24,7 +27,9 @@ export default function SettingsDialog({ snapshot, onClose, onSaved, onBusy, ret
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ text: string; good: boolean } | null>(null);
   const [advanced, setAdvanced] = useState(false);
-  const dialog = useDialog<HTMLElement>(onClose, !!busy, returnFocusTo);
+  const locked = !!busy || !!updates?.busy;
+  const unsaved = JSON.stringify(form) !== JSON.stringify(formValues(snapshot));
+  const dialog = useDialog<HTMLElement>(onClose, locked, returnFocusTo);
   const change = (name: keyof typeof form, value: string | number) => { setForm(old => ({ ...old, [name]: value })); setMessage(null); };
 
   async function save(test?: 'chat' | 'embedding') {
@@ -61,8 +66,8 @@ export default function SettingsDialog({ snapshot, onClose, onSaved, onBusy, ret
 
   return <div className="modal-backdrop"><section ref={dialog} className="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title" tabIndex={-1}>
     <header className="dialog-header"><div><h2 id="settings-title">模型与连接</h2><p>配置你的 AI，让本地知识库开始工作。</p></div>
-      <button className="icon-button" aria-label="关闭设置" disabled={!!busy} onClick={onClose}><X size={20} /></button></header>
-    <div className="settings-body"><fieldset className="settings-fields" disabled={!!busy}>
+      <button className="icon-button" aria-label="关闭设置" disabled={locked} onClick={onClose}><X size={20} /></button></header>
+    <div className="settings-body"><fieldset className="settings-fields" disabled={locked}>
       {snapshot.overrides.length > 0 && <div className="notice">部分设置由环境变量控制：{snapshot.overrides.join('、')}。保存文件后，环境变量仍优先。</div>}
       <section className="provider-card"><div className="provider-heading"><div className="provider-avatar deepseek">D</div><div><h3>DeepSeek</h3><p>知识库问答</p></div><span className={`status-badge ${snapshot.saved.api_key_configured ? 'ready' : 'pending'}`}>{snapshot.saved.api_key_configured ? '已配置' : '待配置'}</span></div>
         <div className="field-grid"><label>服务地址<input data-initial-focus value={form.base_url} onChange={e => change('base_url', e.target.value)} /></label><label>问答模型<input value={form.chat_model} onChange={e => change('chat_model', e.target.value)} /></label></div>
@@ -77,8 +82,8 @@ export default function SettingsDialog({ snapshot, onClose, onSaved, onBusy, ret
       </section>
       <button className="advanced-toggle" aria-expanded={advanced} onClick={() => setAdvanced(!advanced)}><SlidersHorizontal size={17} />{advanced ? '收起高级设置' : '高级设置'}</button>
       {advanced && <div className="advanced-fields field-grid"><label>分块大小<input type="number" value={form.chunk_tokens} onChange={e => change('chunk_tokens', Number(e.target.value))} /></label><label>分块重叠<input type="number" value={form.chunk_overlap} onChange={e => change('chunk_overlap', Number(e.target.value))} /></label><label>相似度阈值<input type="number" step="0.05" value={form.min_score} onChange={e => change('min_score', Number(e.target.value))} /></label><label>超时（秒）<input type="number" value={form.timeout} onChange={e => change('timeout', Number(e.target.value))} /></label><label>有限重试次数<input type="number" min={0} max={5} value={form.max_retries} onChange={e => change('max_retries', Number(e.target.value))} /></label><label>检索引擎<select value={form.retrieval_engine} onChange={e => change('retrieval_engine', e.target.value)}><option value="cpp">C++ ExactIndex</option><option value="numpy">NumPy</option></select></label></div>}
-    </fieldset></div>
+    </fieldset>{updates && <>{unsaved && <p className="notice">请先保存模型设置，再检查或安装更新。</p>}<UpdateSection updates={updates} disabled={!!busy || unsaved} /></>}</div>
     {message && <div role="status" className={`settings-status notice ${message.good ? 'success' : 'error'}`}>{message.good && <Check size={16} />}{message.text}</div>}
-    <footer className="dialog-footer"><span>新输入的 Key 默认可见，留空保留原值。</span><div className="dialog-actions"><button className="secondary-button" disabled={!!busy} onClick={diagnose}>{busy === 'doctor' && <Loader2 className="spin" size={17} />}本地检查</button><button className="primary-button" disabled={!!busy} onClick={() => save()}>{busy === 'save' && <Loader2 className="spin" size={17} />}保存设置</button></div></footer>
+    <footer className="dialog-footer"><span>新输入的 Key 默认可见，留空保留原值。</span><div className="dialog-actions"><button className="secondary-button" disabled={locked} onClick={diagnose}>{busy === 'doctor' && <Loader2 className="spin" size={17} />}本地检查</button><button className="primary-button" disabled={locked} onClick={() => save()}>{busy === 'save' && <Loader2 className="spin" size={17} />}保存设置</button></div></footer>
   </section></div>;
 }

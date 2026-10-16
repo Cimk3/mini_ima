@@ -12,6 +12,8 @@ dist/
 .env.*
 !.env.example
 .miniima/
+.miniima-update-*/
+.miniima-update-result.json
 # Personal API configuration, knowledge bases, document copies, and backups.
 config.json
 config.local.*

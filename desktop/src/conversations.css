@@ -27,6 +27,28 @@
 .history-open small { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
 .history-row .history-delete { width: 28px; height: 32px; margin-right: 3px; color: var(--text-muted); }
 .history-delete:hover:not(:disabled) { color: var(--danger); }
+.history-row .history-rename { width: 26px; height: 32px; color: var(--text-muted); }
+.history-search { display: flex; align-items: center; gap: 7px; padding: 0 8px; margin: 0 4px 8px; min-height: 34px; border: 1px solid var(--input-line); border-radius: 8px; color: var(--text-muted); background: var(--surface); }
+.history-search > svg { flex-shrink: 0; }
+.history-search input { min-width: 0; width: 100%; border: 0; background: transparent; padding: 7px 0; font-size: 12px; }
+.history-search .icon-button { width: 22px; height: 24px; }
+.rename-body { padding: 20px 24px; }
+.rename-body label { display: grid; gap: 8px; }
+.rename-body input { width: 100%; padding: 10px 12px; }
+.conversation-scroll-shell { position: relative; display: flex; flex: 1; min-height: 0; flex-direction: column; }
+.back-to-latest { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); box-shadow: var(--shadow); min-height: 34px; padding: 6px 12px; font-size: 12px; z-index: 2; white-space: nowrap; }
+.back-to-latest:not(:disabled):active { transform: translateX(-50%); }
+.update-section { padding-top: 20px; border-top: 1px solid var(--line); display: grid; gap: 12px; }
+.update-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.update-heading h3 { margin: 0; font-size: 15px; }
+.update-heading p, .update-section > p { margin: 0; font-size: 13px; color: var(--text-secondary); }
+.update-section > .primary-button { justify-self: start; }
+.update-section small { font-size: 12px; color: var(--text-muted); line-height: 1.7; }
+.update-notes { white-space: pre-wrap; overflow: auto; max-height: 160px; background: var(--surface-hover); border-radius: 8px; padding: 12px; color: var(--text-secondary); font-size: 13px; line-height: 1.7; }
+.update-progress { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
+.update-progress progress { flex: 1 1 100%; width: 100%; height: 6px; accent-color: var(--accent); }
+.update-section .update-error { color: var(--danger); }
+.update-banner { position: fixed; right: 24px; top: 76px; z-index: 35; max-width: calc(100vw - 32px); padding: 12px 16px; display: flex; align-items: center; gap: 16px; border: 1px solid var(--input-line); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow); color: var(--text); font-size: 13px; }
 .history-more { width: 100%; justify-content: flex-start; padding: 10px; }
 .sidebar > .sidebar-label { min-height: 42px; padding-top: 10px; font-size: 13px; }
 .library-list { flex: 0 1 auto; min-height: 55px; max-height: 156px; scrollbar-width: thin; }

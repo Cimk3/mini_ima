@@ -38,6 +38,14 @@ export async function previewRequest(method: string, params: Record<string, unkn
   const snapshot = { saved: settings, effective: settings, overrides: [], home: reference ? 'preview:reference-v2' : 'preview:normal-v2' };
   switch (method) {
     case 'initialize': return { knowledge_bases: activeBases(), settings: snapshot } satisfies Bootstrap;
+    case 'updates.check': return { current_version: '0.2.0', latest_version: '0.2.0', available: false, can_install: false };
+    case 'updates.status': return { phase: 'idle', received: 0, total: 0 };
+    case 'conversations.rename': {
+      const item = activeConversations().find(item => item.id === params.conversation_id);
+      const title = String(params.title || '').trim();
+      if (!item || !title || title.length > 100) throw new Error('对话标题无效。');
+      item.title = title; item.updated_at = new Date().toISOString(); save(); return structuredClone(item);
+    }
     case 'kb.list': return activeBases();
     case 'kb.create': { const kb = { ...base, id: crypto.randomUUID(), name: String(params.name) }; state.bases.push(kb); save(); return kb; }
     case 'kb.delete': { const kb = activeBases().find(item => item.id === params.kb)!;
@@ -49,7 +57,7 @@ export async function previewRequest(method: string, params: Record<string, unkn
     case 'search': return sources;
     case 'web.open': window.open(String(params.url), '_blank', 'noopener,noreferrer'); return { opened: true };
     case 'ask': return { text: answer, citations: sources, conversation_id: 'legacy-preview' };
-    case 'conversations.list': { const items = activeConversations().sort((a, b) => b.updated_at.localeCompare(a.updated_at)); const offset = Number(params.offset || 0), limit = Number(params.limit || 50); return { items: items.slice(offset, offset + limit), total: items.length, has_more: offset + limit < items.length }; }
+    case 'conversations.list': { const term = String(params.query || '').trim().toLocaleLowerCase(); const items = activeConversations().filter(item => item.title.toLocaleLowerCase().includes(term)).sort((a, b) => b.updated_at.localeCompare(a.updated_at)); const offset = Number(params.offset || 0), limit = Number(params.limit || 50); return { items: items.slice(offset, offset + limit), total: items.length, has_more: offset + limit < items.length }; }
     case 'conversations.get': { const conversation = activeConversations().find(item => params.request_id ? item.messages.some(message => message.request_id === params.request_id) : item.id === params.conversation_id); if (!conversation) throw Error('对话不存在或已移入回收站。'); return conversation; }
     case 'conversations.send': {
       const previous = activeConversations().find(item => item.messages.some(message => message.request_id === params.request_id));
