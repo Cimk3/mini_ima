@@ -63,6 +63,7 @@
 .conversation-tab-select { min-width: 0; flex: 1; align-self: stretch; padding: 8px 0; gap: 7px; background: transparent; color: inherit; }
 .conversation-tab-select > svg { flex-shrink: 0; }
 .conversation-tabs .new-question { display: inline-flex; flex-shrink: 0; }
+.conversation-tabs .restore-draft { display: inline-flex; flex-shrink: 0; gap: 5px; white-space: nowrap; font-size: 12px; }
 .conversation-tabs .conversation-tab .icon-button { display: inline-flex; flex-shrink: 0; color: var(--text-muted); }
 .conversation-tab .icon-button:hover { color: var(--text); background: var(--surface-hover); }
 .conversation-tab strong { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }

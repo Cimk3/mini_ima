@@ -139,6 +139,89 @@ test('conversation windows keep separate drafts, switch, close, and restore afte
   expect(mocks.request.mock.calls.some(call => call[0] === 'conversations.delete')).toBe(false);
 });
 
+test('v022 closed blank drafts stay independent and can be recovered after restarting', async () => {
+  const user = userEvent.setup(); const view = render(<App />); await screen.findByText('network.md');
+  fireEvent.change(screen.getByLabelText('知识库问题'), { target: { value: '第一个独立草稿' } });
+  await user.click(screen.getAllByRole('button', { name: '新建对话' })[1]);
+  fireEvent.change(screen.getByLabelText('知识库问题'), { target: { value: '第二个独立草稿' } });
+  const navigation = screen.getByRole('navigation', { name: '对话窗口' });
+  await user.click(within(navigation).getAllByRole('button', { name: '关闭对话窗口：新对话' })[0]);
+  expect(screen.getByLabelText('知识库问题')).toHaveValue('第二个独立草稿');
+  await user.click(within(navigation).getByRole('button', { name: '关闭对话窗口：新对话' }));
+  view.unmount(); render(<App />); await screen.findByText('network.md');
+  await user.click(screen.getByRole('button', { name: '恢复上次关闭的草稿' }));
+  expect(screen.getByLabelText('知识库问题')).toHaveValue('第二个独立草稿');
+  await user.click(screen.getByRole('button', { name: '恢复上次关闭的草稿' }));
+  expect(screen.getByLabelText('知识库问题')).toHaveValue('第一个独立草稿');
+  expect(screen.queryByRole('button', { name: '恢复上次关闭的草稿' })).not.toBeInTheDocument();
+  expect(screen.getByLabelText('知识库问题')).toHaveFocus();
+});
+
+test('v022 saved conversation drafts reopen from history and only clear after sending', async () => {
+  conversations = [conversationFor('已保存的对话')];
+  const user = userEvent.setup(); render(<App />); await screen.findByText('network.md');
+  await user.click(screen.getByRole('button', { name: '已保存的对话 网络' }));
+  await waitFor(() => expect(screen.getByLabelText('知识库问题')).toBeEnabled());
+  fireEvent.change(screen.getByLabelText('知识库问题'), { target: { value: '保留的追问草稿' } });
+  await user.click(screen.getByRole('button', { name: '关闭对话窗口：已保存的对话' }));
+  fireEvent.change(screen.getByLabelText('知识库问题'), { target: { value: '另一个窗口的草稿' } });
+  await user.click(screen.getByRole('button', { name: '已保存的对话 网络' }));
+  await waitFor(() => expect(screen.getByLabelText('知识库问题')).toBeEnabled());
+  expect(screen.getByLabelText('知识库问题')).toHaveValue('保留的追问草稿');
+  await user.click(screen.getByRole('button', { name: '发送问题' }));
+  await waitFor(() => expect(screen.getByLabelText('知识库问题')).toBeEnabled());
+  await user.click(screen.getByRole('button', { name: '关闭对话窗口：已保存的对话' }));
+  expect(screen.getByLabelText('知识库问题')).toHaveValue('另一个窗口的草稿');
+  await user.click(screen.getByRole('button', { name: '已保存的对话 网络' }));
+  await waitFor(() => expect(screen.getByLabelText('知识库问题')).toBeEnabled());
+  expect(screen.getByLabelText('知识库问题')).toHaveValue('');
+  expect(screen.queryByRole('button', { name: '恢复上次关闭的草稿' })).not.toBeInTheDocument();
+});
+
+test('v022 closing a pending window retains its draft until the send is acknowledged', async () => {
+  const user = userEvent.setup(); let finish: (value: unknown) => void;
+  const baseline = mocks.request.getMockImplementation()!;
+  mocks.request.mockImplementation((method: string, params: Record<string, unknown>) => method === 'conversations.send'
+    ? new Promise(resolve => { finish = resolve; }) : baseline(method, params));
+  render(<App />); await screen.findByText('network.md');
+  fireEvent.change(screen.getByLabelText('知识库问题'), { target: { value: '等待发送确认的问题' } });
+  await user.click(screen.getByRole('button', { name: '发送问题' }));
+  await user.click(screen.getByRole('button', { name: '关闭对话窗口：新对话' }));
+  expect(screen.getByRole('button', { name: '恢复上次关闭的草稿' })).toBeInTheDocument();
+  finish!(conversationFor('等待发送确认的问题'));
+  await waitFor(() => expect(screen.queryByRole('button', { name: '恢复上次关闭的草稿' })).not.toBeInTheDocument());
+  expect(screen.getByLabelText('知识库问题')).toHaveValue('');
+});
+
+test('v022 explicitly clearing a rejected draft prevents it reappearing after restart', async () => {
+  const baseline = mocks.request.getMockImplementation()!;
+  mocks.request.mockImplementation((method: string, params: Record<string, unknown>) => method === 'conversations.send'
+    ? Promise.reject(new Error('测试发送失败')) : baseline(method, params));
+  const user = userEvent.setup(); const view = render(<App />); await screen.findByText('network.md');
+  fireEvent.change(screen.getByLabelText('知识库问题'), { target: { value: '失败后主动清空' } });
+  await user.click(screen.getByRole('button', { name: '发送问题' }));
+  await screen.findByText(/测试发送失败/);
+  expect(screen.getByLabelText('知识库问题')).toHaveValue('失败后主动清空');
+  fireEvent.change(screen.getByLabelText('知识库问题'), { target: { value: '' } });
+  await user.click(screen.getByRole('button', { name: '关闭对话窗口：新对话' }));
+  view.unmount(); render(<App />); await screen.findByText('network.md');
+  expect(screen.getByLabelText('知识库问题')).toHaveValue('');
+  expect(screen.queryByRole('button', { name: '恢复上次关闭的草稿' })).not.toBeInTheDocument();
+});
+
+test('v022 legacy blank draft keys do not resurrect an acknowledged question', async () => {
+  localStorage.setItem(`miniima-workspace:${encodeURIComponent(config.home)}`, JSON.stringify({
+    drafts: { 'new:kb0': '旧版未发送内容' }, windows: [{ key: 'legacy-window', kb: 'kb0', conversationId: null,
+      title: '新对话', draft: '旧版未发送内容', webSearch: false }], activeWindowKey: 'legacy-window' }));
+  const user = userEvent.setup(); render(<App />); await screen.findByText('network.md');
+  expect(screen.getByLabelText('知识库问题')).toHaveValue('旧版未发送内容');
+  await user.click(screen.getByRole('button', { name: '发送问题' }));
+  await waitFor(() => expect(screen.getByLabelText('知识库问题')).toBeEnabled());
+  await user.selectOptions(screen.getByLabelText('当前知识库'), 'kb1');
+  await user.selectOptions(screen.getByLabelText('当前知识库'), 'kb0');
+  expect(screen.getByLabelText('知识库问题')).toHaveValue('');
+});
+
 test('a late result updates its original conversation window instead of a newer window in the same knowledge base', async () => {
   const user = userEvent.setup(); let finish: (value: unknown) => void;
   const baseline = mocks.request.getMockImplementation()!;

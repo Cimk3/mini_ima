@@ -36,6 +36,8 @@ export default function App() {
   const [sourceHidden, setSourceHidden] = useState(() => { try { return localStorage.getItem('miniima-source-hidden') === 'true'; } catch { return false; } });
   const [windows, setWindows] = useState<ConversationWindow[]>([]);
   const windowsRef = useRef<ConversationWindow[]>([]);
+  const [closedWindows, setClosedWindows] = useState<ConversationWindow[]>([]);
+  const closedWindowsRef = useRef<ConversationWindow[]>([]);
   const [activeWindowKey, setActiveWindowKey] = useState('');
   const activeWindow = useRef('');
   const [webSearch, setWebSearch] = useState(false);
@@ -134,10 +136,8 @@ export default function App() {
 
   useEffect(() => {
     if (!settings || startup || tab !== 'ask') return;
-    const saved = readWorkspace(settings.home);
-    writeWorkspace(settings.home, { lastConversationId: activeId, lastKb: selected,
-      drafts: { ...saved.drafts, [draftKey(selected, activeId)]: query } });
-  }, [query, selected, activeId, settings?.home, startup, tab]);
+    writeWorkspace(settings.home, { lastConversationId: activeId, lastKb: selected });
+  }, [selected, activeId, settings?.home, startup, tab]);
 
   useEffect(() => {
     if (tab !== 'ask' || !focusNewQuestion.current || busy || startup || conversationLoading || navigationVisible || modalOpen || sourceModal) return;
@@ -163,11 +163,31 @@ export default function App() {
   function updateWindows(next: ConversationWindow[] | ((items: ConversationWindow[]) => ConversationWindow[])) {
     const items = typeof next === 'function' ? next(windowsRef.current) : next;
     windowsRef.current = items; setWindows(items);
+    if (homeRef.current) writeWorkspace(homeRef.current, { windows: items });
+  }
+
+  function updateClosedWindows(next: ConversationWindow[] | ((items: ConversationWindow[]) => ConversationWindow[])) {
+    const items = typeof next === 'function' ? next(closedWindowsRef.current) : next;
+    closedWindowsRef.current = items; setClosedWindows(items);
+    if (homeRef.current) writeWorkspace(homeRef.current, { closedWindows: items });
+  }
+
+  function saveConversationDraft(kb: string, id: string | null, text: string) {
+    if (!id) return; // Blank conversations are stored by their unique window keys.
+    const saved = readWorkspace(homeRef.current);
+    writeWorkspace(homeRef.current, { drafts: { ...saved.drafts, [draftKey(kb, id)]: text } });
   }
 
   function changeQuery(text: string) {
     setQuery(text);
-    if (tab === 'ask') updateWindows(items => items.map(item => item.key === activeWindow.current ? { ...item, draft: text } : item));
+    if (tab === 'ask') {
+      updateWindows(items => items.map(item => item.key === activeWindow.current ? { ...item, draft: text } : item));
+      saveConversationDraft(selected, activeId, text);
+      if (!text && unconfirmed && unconfirmed.kb === selected
+        && (!unconfirmed.window_key || unconfirmed.window_key === activeWindow.current)) {
+        setUnconfirmed(null); writeWorkspace(homeRef.current, { outbox: null });
+      }
+    }
   }
 
   function changeWebSearch(enabled: boolean) {
@@ -180,7 +200,12 @@ export default function App() {
     if (existing) return existing;
     const item = { key: crypto.randomUUID(), kb, conversationId: null, title: '新对话',
       draft: forceNew ? '' : draft(homeRef.current, kb, null), webSearch: false };
-    updateWindows(items => [...items, item]); return item;
+    updateWindows(items => [...items, item]);
+    if (item.draft) {
+      const saved = readWorkspace(homeRef.current);
+      writeWorkspace(homeRef.current, { drafts: { ...saved.drafts, [draftKey(kb, null)]: '' } });
+    }
+    return item;
   }
 
   function activateBlank(item: ConversationWindow, activateConversation = true) {
@@ -204,10 +229,8 @@ export default function App() {
   function closeWindow(key: string) {
     const index = windowsRef.current.findIndex(item => item.key === key);
     const closed = windowsRef.current[index];
-    if (closed) {
-      const saved = readWorkspace(homeRef.current);
-      writeWorkspace(homeRef.current, { drafts: { ...saved.drafts, [draftKey(closed.kb, closed.conversationId)]: '' } });
-    }
+    if (!closed) return;
+    if (closed.draft) updateClosedWindows(items => [...items.filter(item => item.key !== key), closed]);
     const remaining = windowsRef.current.filter(item => item.key !== key);
     updateWindows(remaining);
     if (activeWindow.current === key) {
@@ -215,6 +238,16 @@ export default function App() {
       const next = remaining[Math.max(0, index - 1)] || blankWindow(selected, true);
       switchWindow(next);
     }
+  }
+
+  function restoreDraft() {
+    const item = [...closedWindowsRef.current].reverse().find(window => bases.some(kb => kb.id === window.kb));
+    if (!item) return;
+    focusNewQuestion.current = true; setFocusRequest(value => value + 1);
+    if (item.conversationId) { void openConversation(item.conversationId); return; }
+    updateWindows(items => [...items, item]);
+    updateClosedWindows(items => items.filter(window => window.key !== item.key));
+    activateBlank(item);
   }
 
   function selectBase(id: string, activateConversation = true) {
@@ -265,7 +298,7 @@ export default function App() {
     const summary = existing || history.find(item => item.id === id);
     let window = windowsRef.current.find(item => item.conversationId === id);
     if (!window) {
-      window = { key: crypto.randomUUID(), kb: summary?.knowledge_base_id || selection.current, conversationId: id,
+      window = closedWindowsRef.current.find(item => item.conversationId === id) || { key: crypto.randomUUID(), kb: summary?.knowledge_base_id || selection.current, conversationId: id,
         title: summary?.title || '对话', draft: draft(homeRef.current, summary?.knowledge_base_id || selection.current, id), webSearch: false };
       updateWindows(items => [...items, window!]);
     }
@@ -277,6 +310,7 @@ export default function App() {
     try {
       const detail = existing || await request<ConversationDetail>('conversations.get', { conversation_id: id });
       updateWindows(items => items.map(item => item.key === key ? { ...item, kb: detail.knowledge_base_id, title: detail.title } : item));
+      updateClosedWindows(items => items.filter(item => item.conversationId !== id));
       if (viewVersion.current !== version) return;
       setConversation(detail);
       if (selection.current !== detail.knowledge_base_id) {
@@ -298,12 +332,19 @@ export default function App() {
       homeRef.current = data.settings.home;
       const saved = readWorkspace(data.settings.home);
       setBases(data.knowledge_bases); setSettings(data.settings);
+      updateClosedWindows(Array.isArray(saved.closedWindows) ? saved.closedWindows.filter(item => item
+        && typeof item.key === 'string' && typeof item.kb === 'string' && typeof item.title === 'string'
+        && typeof item.draft === 'string' && item.draft.length > 0 && typeof item.webSearch === 'boolean'
+        && (item.conversationId === null || typeof item.conversationId === 'string')) : []);
       const restored = Array.isArray(saved.windows) ? saved.windows.filter(item => item && typeof item.key === 'string'
         && typeof item.title === 'string' && typeof item.draft === 'string' && typeof item.webSearch === 'boolean'
         && (item.conversationId === null || typeof item.conversationId === 'string')
         && data.knowledge_bases.some(kb => kb.id === item.kb)).filter((item, index, list) => list.findIndex(other => other.key === item.key
           || !!item.conversationId && other.conversationId === item.conversationId) === index) : [];
       updateWindows(restored);
+      const drafts = { ...saved.drafts };
+      for (const item of restored) if (!item.conversationId) delete drafts[draftKey(item.kb, null)];
+      writeWorkspace(homeRef.current, { drafts });
       const current = data.knowledge_bases.find(kb => kb.id === saved.lastKb) || data.knowledge_bases[0];
       if (restored.length) {
         selection.current = current?.id || ''; setSelected(selection.current);
@@ -313,6 +354,10 @@ export default function App() {
       if (saved.outbox) {
         try {
           const recovered = await request<ConversationDetail>('conversations.get', { request_id: saved.outbox.request_id });
+          updateWindows(items => items.map(item => item.key === saved.outbox!.window_key
+            ? { ...item, conversationId: recovered.id, title: recovered.title, draft: '' } : item));
+          updateClosedWindows(items => items.filter(item => item.key !== saved.outbox!.window_key));
+          saveConversationDraft(saved.outbox.kb, recovered.id, '');
           await openConversation(recovered.id, recovered);
           writeWorkspace(homeRef.current, { outbox: null });
         } catch {
@@ -451,7 +496,6 @@ export default function App() {
       && unconfirmed.conversation_id === (activeId || undefined) && !!unconfirmed.web_search === webSearch ? unconfirmed
       : { kb, question: text, request_id: crypto.randomUUID(), window_key: windowKey, ...(activeId ? { conversation_id: activeId } : {}), ...(webSearch ? { web_search: true } : {}) };
     if (mode === 'ask') {
-      updateWindows(items => items.map(item => item.key === windowKey ? { ...item, draft: '' } : item));
       setPendingTurn({ view: version, windowKey, request: outgoing }); writeWorkspace(homeRef.current, { outbox: outgoing });
     }
     try {
@@ -461,7 +505,10 @@ export default function App() {
       } else {
         const result = await request<ConversationDetail>('conversations.send', { ...outgoing });
         writeWorkspace(homeRef.current, { outbox: null }); setUnconfirmed(null);
-        updateWindows(items => items.map(item => item.key === windowKey ? { ...item, conversationId: result.id, title: result.title } : item));
+        updateWindows(items => items.map(item => item.key === windowKey ? { ...item, conversationId: result.id, title: result.title, draft: '' } : item));
+        updateClosedWindows(items => items.filter(item => item.key !== windowKey));
+        saveConversationDraft(kb, outgoing.conversation_id || null, '');
+        saveConversationDraft(kb, result.id, '');
         if (workspaceTab.current === 'ask' && selection.current === kb && (activeWindow.current === windowKey || activeConversation.current === result.id)) {
           setConversation(result); setActiveId(result.id);
           const sources = result.messages.filter(message => message.role === 'assistant').at(-1)?.citations || [];
@@ -618,7 +665,8 @@ export default function App() {
       <header className="workspace-header">
         <h1 className="sr-only">{base?.name || '构建你的知识空间'}</h1>
         <ConversationTabs windows={windows} activeKey={tab === 'ask' ? activeWindowKey : ''}
-          pendingKey={pendingTurn?.windowKey} disabled={startup || (!!busy && busy !== 'ask')} onSwitch={switchWindow} onClose={closeWindow} onNew={newQuestion} />
+          pendingKey={pendingTurn?.windowKey} disabled={startup || (!!busy && busy !== 'ask')} onSwitch={switchWindow} onClose={closeWindow} onNew={newQuestion}
+          closedDrafts={closedWindows.filter(window => bases.some(kb => kb.id === window.kb)).length} onRestoreDraft={restoreDraft} />
         <div className="header-actions">
           <label className="base-selector">知识库：<select aria-label="当前知识库" value={selected} onChange={event => selectBase(event.target.value)}>
             {!bases.length && <option value="">暂无知识库</option>}{bases.map(kb => <option value={kb.id} key={kb.id}>{kb.name}</option>)}
