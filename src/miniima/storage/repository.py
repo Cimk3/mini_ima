@@ -324,6 +324,7 @@ class Repository:
                     return conversation_id, dict(old), False
                 if connection.execute("SELECT 1 FROM messages WHERE conversation_id=? AND status='pending'", (conversation_id,)).fetchone():
                     raise MiniimaError('该对话还有问题正在处理。')
+                connection.execute("DELETE FROM messages WHERE reply_to=? AND status!='completed'", (old['id'],))
                 connection.execute("UPDATE messages SET status='pending',error=NULL,worker_pid=?,updated_at=? WHERE id=?",
                                    (os.getpid(), timestamp, old['id']))
                 message = {**dict(old), 'status': 'pending', 'error': None}
@@ -381,6 +382,28 @@ class Repository:
                     json.dumps(citation['source_metadata'], ensure_ascii=False), timestamp))
             connection.execute("UPDATE messages SET status='completed',error=NULL,worker_pid=NULL,updated_at=? WHERE id=?", (timestamp, user_id))
             connection.execute('UPDATE conversations SET updated_at=? WHERE id=?', (timestamp, user['conversation_id']))
+        return self.get_conversation(user['conversation_id'])
+
+    def finish_incomplete(self, user_id: str, text: str, status: str, error: str) -> dict:
+        if status not in ('failed', 'interrupted'):
+            raise ValueError('invalid incomplete status')
+        timestamp = now()
+        with self.connection() as connection, connection:
+            connection.execute('BEGIN IMMEDIATE')
+            user = connection.execute('SELECT * FROM messages WHERE id=?', (user_id,)).fetchone()
+            if not user:
+                raise MiniimaError('找不到当前问题。')
+            if user['status'] == 'pending':
+                self._conversation(connection, user['conversation_id'])
+                connection.execute('DELETE FROM messages WHERE reply_to=?', (user_id,))
+                if text:
+                    connection.execute('''INSERT INTO messages
+                        (id,conversation_id,role,content,created_at,updated_at,position,reply_to,status,error)
+                        VALUES (?,?,?,?,?,?,?,?,?,?)''', (str(uuid.uuid4()), user['conversation_id'], 'assistant',
+                        text, timestamp, timestamp, user['position'] + 1, user_id, status, error))
+                connection.execute('UPDATE messages SET status=?,error=?,worker_pid=NULL,updated_at=? WHERE id=?',
+                    (status, error, timestamp, user_id))
+                connection.execute('UPDATE conversations SET updated_at=? WHERE id=?', (timestamp, user['conversation_id']))
         return self.get_conversation(user['conversation_id'])
 
     def fail_turn(self, user_id: str, error: str) -> None:

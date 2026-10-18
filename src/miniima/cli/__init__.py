@@ -62,7 +62,7 @@ def source_location(item: dict) -> str:
     return location + (" · " + " / ".join(headings) if headings else "")
 
 
-@app.callback()
+@app.callback(invoke_without_command=True)
 def callback(version: Annotated[bool, typer.Option("--version", help="显示版本", is_eager=True)] = False):
     if version:
         console.print(__version__)

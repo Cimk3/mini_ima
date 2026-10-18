@@ -28,6 +28,7 @@ function activeBases() { return state.bases.filter(kb => !state.trash.some(item 
 function activeConversations() { return state.conversations.filter(conversation => activeBases().some(kb => kb.id === conversation.knowledge_base_id) && !state.trash.some(item => item.kind === 'conversation' && item.id === conversation.id)); }
 const answer = reference ? referenceAnswer : 'TCP 三次握手的核心是**让双方确认连接可用，并同步初始序列号**。[1]\n\n1. 客户端发送 SYN，发起连接。\n2. 服务器回复 SYN + ACK，确认收到请求。\n3. 客户端发送 ACK，确认收到服务器的回应。\n\n第三次握手让服务器确认客户端已收到自己的初始序列号。';
 const sources = reference ? referenceSources : [source];
+const previewRuns = new Map<string, { cancelled: boolean }>();
 const webSource: Source = { id: 'preview-web', chunk_id: null, document_id: 'web:preview', filename: 'TCP 规范 · RFC 9293',
   content: 'TCP 使用三次握手建立连接，同步双方的初始序列号。此处为开发预览的模拟网页摘要。', citation_number: 1,
   source_metadata: { kind: 'web', url: 'https://www.rfc-editor.org/rfc/rfc9293', retrieved_at: '2026-10-15T00:00:00Z',
@@ -38,6 +39,21 @@ export async function previewRequest(method: string, params: Record<string, unkn
   await new Promise(resolve => setTimeout(resolve, 120));
   const snapshot = { saved: settings, effective: settings, overrides: [], home: reference ? 'preview:reference-v2' : 'preview:normal-v2' };
   switch (method) {
+    case 'conversations.cancel': {
+      const run = previewRuns.get(String(params.request_id));
+      if (run) run.cancelled = true;
+      return { accepted: !!run };
+    }
+    case 'conversations.export': {
+      const detail = activeConversations().find(item => item.id === params.conversation_id);
+      if (!detail || !detail.messages.length || detail.messages.some(item => item.status === 'pending')) throw Error('当前对话暂时不能导出。');
+      let round = 0;
+      const markdown = `# ${detail.title}\n\n知识库：${detail.knowledge_base_name}\n\n` + detail.messages.map(item => {
+        if (item.role === 'user') return `## 第 ${++round} 轮\n\n### 问题\n\n${item.content}\n\n状态：${item.status}\n`;
+        return `### 回答\n\n${item.content}\n\n${item.status !== 'completed' ? '未完成 · 来源尚未校验\n' : ''}` + item.citations.map(cite => `#### 本轮来源 [${cite.citation_number}] ${cite.filename}\n\n${cite.source_metadata.url || `行 ${cite.source_metadata.line_start}–${cite.source_metadata.line_end}`}\n\n> ${cite.content.replaceAll('\n', '\n> ')}\n`).join('\n');
+      }).join('\n');
+      return { filename: `Miniima-${detail.title.replace(/[<>:"/\\|?*]/g, '_')}-${new Date().toISOString().slice(0, 10).replaceAll('-', '')}.md`, markdown };
+    }
     case 'initialize': return { knowledge_bases: activeBases(), settings: snapshot } satisfies Bootstrap;
     case 'updates.check': return { current_version: APP_VERSION, latest_version: APP_VERSION, available: false, can_install: false };
     case 'updates.status': return { phase: 'idle', received: 0, total: 0 };
@@ -106,4 +122,38 @@ export async function previewRequest(method: string, params: Record<string, unkn
     case 'doctor': return { integrity: 'ok', foreign_key_errors: 0, engine: 'cpp' };
     default: throw Error('预览仅使用 Mock 数据，请在桌面应用中设置 API 或导入文档。');
   }
+}
+
+export async function previewStreamRequest(method: 'conversations.send' | 'conversations.retry', params: Record<string, unknown>,
+  onEvent: (event: import('./types').TurnEvent) => void): Promise<ConversationDetail> {
+  const requestId = String(params.request_id);
+  const run = { cancelled: false }; previewRuns.set(requestId, run);
+  try {
+    if (method === 'conversations.retry') {
+      const prior = activeConversations().find(item => item.messages.some(message => message.request_id === requestId));
+      const user = prior?.messages.find(item => item.request_id === requestId);
+      if (prior && user && user.status !== 'completed') prior.messages = prior.messages.filter(item => item.reply_to !== user.id);
+    }
+    const complete = await previewRequest(method, params) as ConversationDetail;
+    const detail = state.conversations.find(item => item.id === complete.id)!;
+    const user = detail.messages.find(item => item.request_id === requestId)!;
+    const response = detail.messages.find(item => item.reply_to === user.id)!;
+    const text = response.content;
+    detail.messages = detail.messages.filter(item => item !== response); user.status = 'pending'; save();
+    const common = { request_id: requestId, conversation_id: detail.id };
+    onEvent({ ...common, type: 'started', conversation: structuredClone(detail) });
+    onEvent({ ...common, type: 'phase', phase: 'generating' });
+    response.content = '';
+    for (let index = 0; index < text.length && !run.cancelled; index += 8) {
+      await new Promise(resolve => setTimeout(resolve, 55));
+      if (run.cancelled) break;
+      const delta = text.slice(index, index + 8); response.content += delta;
+      if (params.stream !== false) onEvent({ ...common, type: 'delta', text: delta });
+    }
+    user.status = response.status = run.cancelled ? 'interrupted' : 'completed';
+    if (run.cancelled) { user.error = response.error = '已停止生成。来源尚未校验。'; response.citations = []; }
+    if (response.content) detail.messages.push(response);
+    detail.messages.sort((a, b) => a.position - b.position); detail.message_count = detail.messages.length; save();
+    return structuredClone(detail);
+  } finally { previewRuns.delete(requestId); }
 }

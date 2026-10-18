@@ -16,10 +16,11 @@ export function formValues(snapshot: SettingsSnapshot) {
     retrieval_engine: s.retrieval_engine, min_score: s.min_score, context_tokens: s.context_tokens };
 }
 
-export default function SettingsDialog({ snapshot, onClose, onSaved, onBusy, returnFocusTo, updates }: {
+export default function SettingsDialog({ snapshot, onClose, onSaved, onBusy, returnFocusTo, updates, streamingEnabled = true, onStreamingChange }: {
   snapshot: SettingsSnapshot; onClose: () => void; onSaved: (snapshot: SettingsSnapshot) => void; onBusy: (busy: boolean) => void;
   returnFocusTo?: HTMLElement | null;
   updates?: UpdateController;
+  streamingEnabled?: boolean; onStreamingChange?: (enabled: boolean) => void;
 }) {
   const [form, setForm] = useState(() => formValues(snapshot));
   const [showChatKey, setShowChatKey] = useState(true);
@@ -70,6 +71,7 @@ export default function SettingsDialog({ snapshot, onClose, onSaved, onBusy, ret
     <div className="settings-body"><fieldset className="settings-fields" disabled={locked}>
       {snapshot.overrides.length > 0 && <div className="notice">部分设置由环境变量控制：{snapshot.overrides.join('、')}。保存文件后，环境变量仍优先。</div>}
       <section className="provider-card"><div className="provider-heading"><div className="provider-avatar deepseek">D</div><div><h3>DeepSeek</h3><p>知识库问答</p></div><span className={`status-badge ${snapshot.saved.api_key_configured ? 'ready' : 'pending'}`}>{snapshot.saved.api_key_configured ? '已配置' : '待配置'}</span></div>
+        {onStreamingChange && <label className="streaming-preference"><input type="checkbox" checked={streamingEnabled} onChange={event => onStreamingChange(event.target.checked)} />流式显示回答<small>逐步显示正文；兼容性不佳时可关闭。修改后自动保存。</small></label>}
         <div className="field-grid"><label>服务地址<input data-initial-focus value={form.base_url} onChange={e => change('base_url', e.target.value)} /></label><label>问答模型<input value={form.chat_model} onChange={e => change('chat_model', e.target.value)} /></label></div>
         <label className="key-label">API Key<div className="key-input"><input aria-label="DeepSeek API Key" autoComplete="off" spellCheck={false} type={showChatKey ? 'text' : 'password'} value={form.api_key} placeholder={snapshot.saved.api_key_configured ? '已配置，留空保留现有 Key' : '输入 DeepSeek API Key'} onChange={e => change('api_key', e.target.value)} /><button type="button" className="icon-button" aria-label={showChatKey ? '隐藏 API Key' : '显示 API Key'} aria-pressed={!showChatKey} onClick={() => setShowChatKey(!showChatKey)}>{showChatKey ? <Eye size={18} /> : <EyeOff size={18} />}</button></div></label>
         <button className="secondary-button connection-button" disabled={!!busy} onClick={() => save('chat')}>{busy === 'chat' ? <Loader2 className="spin" size={17} /> : <Wifi size={17} />}保存并测试问答连接</button>

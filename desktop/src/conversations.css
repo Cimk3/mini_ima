@@ -129,3 +129,12 @@
   .trash-item { align-items: flex-start; flex-wrap: wrap; padding: 14px; }
   .trash-item-actions { width: 100%; }
 }
+
+/* Generation and export controls share the existing light/dark tokens. */
+.incomplete-answer { color: var(--text-secondary, #8b949e); font-size: 12px; margin: 0 0 12px; }
+.streaming-answer .answer-card { border-inline-start: 2px solid var(--accent, #58a6ff); }
+.stop-button svg { fill: currentColor; }
+.streaming-preference { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 0 18px; }
+.streaming-preference input { width: auto; }
+.streaming-preference small { width: 100%; color: var(--text-secondary, #8b949e); }
+.export-conversation { white-space: nowrap; margin-inline-end: 12px; }

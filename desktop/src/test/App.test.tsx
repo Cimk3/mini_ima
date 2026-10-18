@@ -6,7 +6,7 @@ import SettingsDialog from '../components/SettingsDialog';
 import type { Bootstrap, ConversationDetail, SettingsSnapshot, Source, TrashItem } from '../types';
 
 const mocks = vi.hoisted(() => ({ request: vi.fn(), chooseFiles: vi.fn(), confirmAction: vi.fn(), windowAction: vi.fn(),
-  getUpdateInfo: vi.fn(), prepareUpdate: vi.fn(), installUpdate: vi.fn() }));
+  getUpdateInfo: vi.fn(), prepareUpdate: vi.fn(), installUpdate: vi.fn(), streamRequest: vi.fn(), exportConversation: vi.fn() }));
 vi.mock('../bridge', () => ({ ...mocks, errorMessage: (error: unknown) => String(error), handleWindowClose: async () => () => {} }));
 const config: SettingsSnapshot = { home: 'C:\\test-home', overrides: [], saved: {
   base_url: 'https://api.deepseek.com', chat_model: 'deepseek-flash', embedding_base_url: 'https://embedding.test/v1',
@@ -34,6 +34,8 @@ beforeEach(() => {
   localStorage.clear();
   conversations = []; trashItems = [];
   vi.clearAllMocks(); mocks.confirmAction.mockResolvedValue(false); mocks.chooseFiles.mockResolvedValue([]);
+  mocks.streamRequest.mockImplementation((method, params) => mocks.request(method, params));
+  mocks.exportConversation.mockResolvedValue({ saved: true, filename: 'Miniima-测试.md' });
   mocks.getUpdateInfo.mockResolvedValue({ current_version: '0.2.0', can_install: false });
   vi.stubGlobal('matchMedia', vi.fn((query: string) => ({
     matches: false, media: query, onchange: null,
@@ -612,7 +614,7 @@ test('opening the pending conversation still receives its completed answer', asy
   await user.type(screen.getByLabelText('知识库问题'), '生成中的问题{Enter}');
   await user.click(screen.getAllByRole('button', { name: '新建对话' })[1]);
   await user.click(screen.getByRole('button', { name: '原来的问题 网络' }));
-  await screen.findByText('正在参考知识库回答…');
+  await screen.findByText('正在检索资料…');
   const completed = conversationFor('生成中的问题', '刚完成的回答', 'saved', prior);
   conversations = [completed]; finish!(completed);
   expect(await screen.findByText('刚完成的回答')).toBeInTheDocument();
@@ -689,7 +691,7 @@ test('history loads fifty conversations at a time and opens a conversation in it
   expect(history.getAllByRole('button', { name: /删除对话/ })).toHaveLength(50);
   await user.click(history.getByRole('button', { name: '加载更多对话' }));
   await waitFor(() => expect(history.getAllByRole('button', { name: /删除对话/ })).toHaveLength(53));
-  expect(mocks.request).toHaveBeenCalledWith('conversations.list', { offset: 50, limit: 50 });
+  expect(mocks.request).toHaveBeenCalledWith('conversations.list', { offset: 50, limit: 50, query: '' });
   await user.click(history.getByRole('button', { name: '历史问题52 阅读' }));
   expect(await screen.findByText('历史回答52')).toBeInTheDocument();
   expect(screen.getByLabelText('当前知识库')).toHaveValue('kb1');

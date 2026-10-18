@@ -2,17 +2,24 @@ use serde_json::{json, Value};
 use std::{collections::HashMap, io::{BufRead, BufReader, Write}, path::Path, process::{Child, ChildStdin, Command, Stdio},
     sync::{Arc, Mutex, atomic::{AtomicU64, Ordering}}, time::Duration};
 use tokio::sync::oneshot;
+use tauri::ipc::Channel;
 
 type Reply = Result<Value, String>;
 
 #[derive(Default)]
 struct Pending {
     requests: Mutex<HashMap<String, oneshot::Sender<Reply>>>,
+    events: Mutex<HashMap<String, Channel<Value>>>,
 }
 
 impl Pending {
     fn deliver(&self, response: Value) {
         let Some(id) = response.get("id").and_then(Value::as_str) else { return };
+        if let Some(event) = response.get("event") {
+            if let Some(channel) = self.events.lock().unwrap().get(id) { let _ = channel.send(event.clone()); }
+            return;
+        }
+        self.events.lock().unwrap().remove(id);
         let Some(sender) = self.requests.lock().unwrap().remove(id) else { return };
         let result = if let Some(error) = response.get("error") {
             Err(error.get("message").and_then(Value::as_str).unwrap_or("本地请求失败。").to_owned())
@@ -25,6 +32,7 @@ impl Pending {
     }
 
     fn fail_all(&self) {
+        self.events.lock().unwrap().clear();
         for (_, sender) in self.requests.lock().unwrap().drain() {
             let _ = sender.send(Err("本地后台已退出，请重新启动应用。".to_owned()));
         }
@@ -105,23 +113,31 @@ impl Bridge {
     }
 
     pub async fn request(&self, method: String, params: Value) -> Reply {
+        self.request_events(method, params, None).await
+    }
+
+    pub async fn request_events(&self, method: String, params: Value, events: Option<Channel<Value>>) -> Reply {
         if !allowed_method(&method) || !params.is_object() { return Err("不支持的桌面请求。".into()); }
         if self.child.lock().unwrap().as_mut().and_then(|child| child.try_wait().ok()).flatten().is_some() {
             return Err("本地后台已退出，请重新启动应用。".into());
         }
         let id = self.sequence.fetch_add(1, Ordering::Relaxed).to_string();
         let (sender, receiver) = oneshot::channel();
+        let progress = events.is_some();
+        if let Some(channel) = events { self.pending.events.lock().unwrap().insert(id.clone(), channel); }
         self.pending.requests.lock().unwrap().insert(id.clone(), sender);
-        let message = json!({"id": id, "method": method, "params": params}).to_string() + "\n";
+        let message = json!({"id": id, "method": method, "params": params, "progress": progress}).to_string() + "\n";
         let written = self.stdin.lock().unwrap().as_mut().map(|input| input.write_all(message.as_bytes()));
         if !matches!(written, Some(Ok(()))) {
             self.pending.requests.lock().unwrap().remove(&id);
+            self.pending.events.lock().unwrap().remove(&id);
             return Err("无法向本地后台发送请求。".into());
         }
         match tokio::time::timeout(Duration::from_secs(300), receiver).await {
             Ok(Ok(result)) => result,
             Ok(Err(_)) => Err("本地请求被中断，请重新启动应用。".into()),
             Err(_) => { self.pending.requests.lock().unwrap().remove(&id);
+                self.pending.events.lock().unwrap().remove(&id);
                 Err("处理时间较长，请稍后刷新查看结果。".into()) }
         }
     }
@@ -142,7 +158,8 @@ fn allowed_method(method: &str) -> bool {
     matches!(method, "initialize" | "kb.list" | "kb.create" | "kb.delete" | "docs.list" | "docs.preview" |
         "docs.import" | "search" | "ask" | "settings.get" | "settings.update" | "settings.qwen" |
         "connections.test" | "doctor" | "conversations.list" | "conversations.get" |
-        "conversations.send" | "conversations.retry" | "conversations.delete" | "conversations.rename" | "web.open" |
+        "conversations.send" | "conversations.retry" | "conversations.cancel" | "conversations.export" |
+        "conversations.delete" | "conversations.rename" | "web.open" |
         "updates.check" | "updates.prepare" | "updates.status" |
         "trash.list" | "trash.restore" | "trash.purge" | "trash.empty")
 }
@@ -172,6 +189,20 @@ mod tests {
         pending.requests.lock().unwrap().insert("1".into(), sender);
         pending.fail_all();
         assert!(receiver.try_recv().unwrap().unwrap_err().contains("已退出"));
+        assert!(pending.requests.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn progress_does_not_consume_the_final_response_waiter() {
+        let pending = Pending::default();
+        let (sender, mut receiver) = oneshot::channel();
+        pending.requests.lock().unwrap().insert("stream".into(), sender);
+        pending.deliver(json!({"id":"stream", "event":{"type":"delta", "text":"片段"}}));
+        assert!(receiver.try_recv().is_err());
+        assert!(pending.requests.lock().unwrap().contains_key("stream"));
+        pending.deliver(json!({"id":"stream", "result":{"done":true}}));
+        assert_eq!(receiver.try_recv().unwrap().unwrap(), json!({"done":true}));
+        pending.deliver(json!({"id":"stream", "event":{"type":"delta", "text":"late"}}));
         assert!(pending.requests.lock().unwrap().is_empty());
     }
 

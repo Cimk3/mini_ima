@@ -1,6 +1,7 @@
 """Private UTF-8 JSON-lines transport. No HTTP server or CLI parsing."""
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import sqlite3
@@ -14,6 +15,8 @@ from typing import TextIO
 from miniima.application.service import KnowledgeService
 from miniima.application.conversations import ConversationService
 from miniima.application.trash import TrashService
+from miniima.application.generation import GenerationRegistry, generate
+from miniima.application.exporting import export_conversation
 from miniima.config import Settings, data_home, load_settings, qwen_settings, save_settings
 from miniima.errors import ConfigurationError, MiniimaError, ProviderError
 from miniima.providers.openai_compatible import OpenAICompatibleProvider
@@ -44,6 +47,7 @@ class Dispatcher:
         self.provider_factory = provider_factory
         self.initialized = False
         self.updates = UpdateService()
+        self.generations = GenerationRegistry()
 
     def settings_snapshot(self) -> dict:
         saved = load_settings(self.home, use_env=False)
@@ -65,6 +69,10 @@ class Dispatcher:
         return value
 
     def dispatch(self, method: str, params: dict):
+        if method == 'conversations.cancel':
+            return {'accepted': self.generations.cancel(self.text(params, 'request_id'))}
+        if method == 'conversations.export':
+            return export_conversation(self.repository.get_conversation(self.text(params, 'conversation_id')))
         if method == 'web.open':
             import webbrowser
             from miniima.providers.web_search import public_url
@@ -190,7 +198,18 @@ class Dispatcher:
             return {"shutdown": True}
         raise RequestError("不支持的桌面请求。")
 
-    def handle(self, request) -> dict:
+    def reserve_generation(self, request, emit):
+        if (isinstance(request, dict) and request.get('progress') is True
+                and request.get('method') in ('conversations.send', 'conversations.retry')):
+            params = request.get('params', {})
+            if not isinstance(params, dict):
+                raise RequestError('请求格式无效。')
+            identifier = self.text(params, 'request_id')
+            return self.generations.reserve(identifier,
+                lambda event: emit({'id': request.get('id'), 'event': event}))
+        return None
+
+    def handle(self, request, *, run=None) -> dict:
         identifier = request.get("id") if isinstance(request, dict) else None
         try:
             if not isinstance(request, dict) or not isinstance(identifier, (str, int)):
@@ -198,6 +217,24 @@ class Dispatcher:
             method, params = request.get("method"), request.get("params", {})
             if not isinstance(method, str) or not isinstance(params, dict):
                 raise RequestError("请求格式无效。")
+            if run is None:
+                run = self.reserve_generation(request, lambda event: None)
+            if run:
+                if not isinstance(params.get('stream', True), bool) or not isinstance(params.get('web_search', False), bool):
+                    raise RequestError('生成选项无效。')
+                if method == 'conversations.retry':
+                    conversation, user = self.repository.retry_details(run.request_id)
+                    kb, question, conversation_id = conversation['knowledge_base_id'], user['content'], conversation['id']
+                    web_search = bool(user['web_search'])
+                else:
+                    kb, question = self.text(params, 'kb'), self.text(params, 'question')
+                    conversation_id = params.get('conversation_id')
+                    if conversation_id is not None and (not isinstance(conversation_id, str) or not conversation_id.strip()):
+                        raise RequestError('对话编号无效。')
+                    web_search = params.get('web_search', False)
+                result = asyncio.run(generate(self.service(), run, kb, question, conversation_id,
+                    retry=method == 'conversations.retry', web_search=web_search, stream=params.get('stream', True)))
+                return {'id': identifier, 'result': result}
             return {"id": identifier, "result": self.dispatch(method, params)}
         except MiniimaError as exc:
             code = "configuration" if isinstance(exc, ConfigurationError) else (
@@ -208,6 +245,9 @@ class Dispatcher:
         except Exception:
             # Neither an exception repr nor request params are written to a log.
             return {"id": identifier, "error": {"code": "internal", "message": "本地处理出现异常，请重试或重新启动应用。"}}
+        finally:
+            if run:
+                self.generations.release(run)
 
 
 def serve(dispatcher: Dispatcher, input_stream: TextIO, output_stream: TextIO) -> None:
@@ -218,8 +258,8 @@ def serve(dispatcher: Dispatcher, input_stream: TextIO, output_stream: TextIO) -
             output_stream.write(json.dumps(response, ensure_ascii=False, allow_nan=False) + "\n")
             output_stream.flush()
 
-    def process(request):
-        write(dispatcher.handle(request))
+    def process(request, run=None):
+        write(dispatcher.handle(request, run=run))
 
     # Keep offline history/trash reads responsive while a model request is running.
     with ThreadPoolExecutor(max_workers=2, thread_name_prefix='miniima-turn') as executor:
@@ -230,7 +270,12 @@ def serve(dispatcher: Dispatcher, input_stream: TextIO, output_stream: TextIO) -
                 write({"id": None, "error": {"code": "request", "message": "请求不是有效的 JSON。"}})
                 continue
             if isinstance(request, dict) and request.get('method') in ('conversations.send', 'conversations.retry', 'updates.check', 'updates.prepare'):
-                executor.submit(process, request)
+                try:
+                    run = dispatcher.reserve_generation(request, write)
+                except MiniimaError as error:
+                    write({'id': request.get('id'), 'error': {'code': 'request', 'message': str(error)}})
+                    continue
+                executor.submit(process, request, run)
                 continue
             response = dispatcher.handle(request)
             write(response)

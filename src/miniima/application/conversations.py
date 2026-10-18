@@ -22,7 +22,7 @@ class ConversationService:
         turns = []
         for answer in messages:
             user = users.get(answer['reply_to']) if answer['role'] == 'assistant' else None
-            if not user or user['position'] >= before or user['status'] != 'completed':
+            if not user or user['position'] >= before or user['status'] != 'completed' or answer.get('status', 'completed') != 'completed':
                 continue
             # Citation numbers belong to one answer, never to a future retrieval.
             content = answer['content']

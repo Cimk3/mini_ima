@@ -8,5 +8,5 @@ export default defineConfig({
     watch: { ignored: ['**/.venv/**', '**/src-tauri/**', '**/build/**', '**/dist/**'] },
   },
   build: { outDir: 'build/frontend', emptyOutDir: true },
-  test: { environment: 'jsdom', setupFiles: ['./src/test/setup.ts'], restoreMocks: true },
+  test: { include: ['src/test/**/*.test.{ts,tsx}'], environment: 'jsdom', setupFiles: ['./src/test/setup.ts'], restoreMocks: true },
 });

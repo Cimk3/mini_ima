@@ -3,10 +3,38 @@
 mod bridge;
 mod updater;
 mod update_files;
+mod exports;
 use bridge::Bridge;
 use serde_json::Value;
 use std::path::PathBuf;
 use tauri::Manager;
+use tauri::{ipc::Channel, AppHandle};
+use tauri_plugin_dialog::DialogExt;
+
+#[tauri::command]
+async fn backend_stream_request(method: String, params: Value, on_event: Channel<Value>,
+    bridge: tauri::State<'_, Bridge>) -> Result<Value, String> {
+    if !matches!(method.as_str(), "conversations.send" | "conversations.retry") {
+        return Err("不支持的生成操作。".into());
+    }
+    bridge.request_events(method, params, Some(on_event)).await
+}
+
+#[tauri::command]
+async fn export_conversation(conversation_id: String, app: AppHandle,
+    bridge: tauri::State<'_, Bridge>) -> Result<Value, String> {
+    let data = bridge.request("conversations.export".into(), serde_json::json!({"conversation_id": conversation_id})).await?;
+    let filename = data["filename"].as_str().ok_or("导出内容无效。")?.to_owned();
+    let markdown = data["markdown"].as_str().ok_or("导出内容无效。")?.to_owned();
+    tauri::async_runtime::spawn_blocking(move || {
+        let selected = app.dialog().file().add_filter("Markdown", &["md"]).set_file_name(&filename).blocking_save_file();
+        let Some(selected) = selected else { return Ok(serde_json::json!({"saved": false})); };
+        let mut path = selected.into_path().map_err(|_| "请选择本地文件位置。")?;
+        if path.extension().is_none() { path.set_extension("md"); }
+        exports::write_markdown(&path, &markdown)?;
+        Ok(serde_json::json!({"saved": true, "filename": path.file_name().map(|name| name.to_string_lossy().into_owned())}))
+    }).await.map_err(|_| "导出操作被中断。".to_owned())?
+}
 
 #[tauri::command]
 async fn backend_request(method: String, mut params: Value, bridge: tauri::State<'_, Bridge>) -> Result<Value, String> {
@@ -74,7 +102,7 @@ fn main() {
             app.manage(bridge);
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![backend_request, update_info, prepare_update, install_update])
+        .invoke_handler(tauri::generate_handler![backend_request, backend_stream_request, export_conversation, update_info, prepare_update, install_update])
         .build(tauri::generate_context!())
         .expect("Unable to start Mini-ima");
     app.run(|handle, event| {

@@ -1,9 +1,9 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, Channel } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open, confirm } from '@tauri-apps/plugin-dialog';
-import { previewRequest } from './preview';
+import { previewRequest, previewStreamRequest } from './preview';
 import { APP_VERSION } from './version';
-import type { UpdateInfo } from './types';
+import type { UpdateInfo, ConversationDetail, TurnEvent } from './types';
 
 const preview = import.meta.env.DEV && new URLSearchParams(window.location.search).has('preview');
 
@@ -25,6 +25,38 @@ export async function installUpdate(): Promise<void> {
 export async function request<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
   if (preview) return previewRequest(method, params) as Promise<T>;
   return invoke<T>('backend_request', { method, params });
+}
+
+export async function streamRequest(method: 'conversations.send' | 'conversations.retry', params: Record<string, unknown>,
+  onEvent: (event: TurnEvent) => void): Promise<ConversationDetail> {
+  if (preview) return previewStreamRequest(method, params, onEvent);
+  const channel = new Channel<TurnEvent>();
+  let buffered: Extract<TurnEvent, { type: 'delta' }> | null = null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let disposed = false;
+  function flush() {
+    if (timer) clearTimeout(timer);
+    timer = undefined;
+    if (buffered) { onEvent(buffered); buffered = null; }
+  }
+  channel.onmessage = event => {
+    if (disposed) return;
+    if (event.type === 'delta') {
+      buffered = buffered ? { ...buffered, text: buffered.text + event.text } : event;
+      timer ??= setTimeout(flush, 40);
+    } else { flush(); onEvent(event); }
+  };
+  try { return await invoke<ConversationDetail>('backend_stream_request', { method, params, onEvent: channel }); }
+  finally { flush(); disposed = true; channel.onmessage = () => {}; }
+}
+
+export async function exportConversation(conversationId: string): Promise<{ saved: boolean; filename?: string }> {
+  if (!preview) return invoke('export_conversation', { conversationId });
+  const result = await previewRequest('conversations.export', { conversation_id: conversationId }) as { filename: string; markdown: string };
+  const url = URL.createObjectURL(new Blob([result.markdown], { type: 'text/markdown;charset=utf-8' }));
+  const anchor = document.createElement('a'); anchor.href = url; anchor.download = result.filename; anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return { saved: true, filename: result.filename };
 }
 
 export async function chooseFiles(): Promise<string[]> {

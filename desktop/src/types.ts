@@ -16,6 +16,10 @@ export interface ImportEntry { path: string; status: 'pending' | 'imported' | 'd
 export interface ConversationSummary { id: string; knowledge_base_id: string; knowledge_base_name: string; title: string; created_at: string; updated_at: string; message_count: number }
 export interface ChatMessage { id: string; conversation_id: string; role: 'user' | 'assistant'; content: string; position: number; status: 'pending' | 'completed' | 'failed' | 'interrupted'; request_id: string | null; reply_to: string | null; error: string | null; citations: Source[]; web_search?: boolean | number }
 export interface ConversationDetail extends ConversationSummary { messages: ChatMessage[] }
+export type TurnEvent = { type: 'started'; request_id: string; conversation_id: string; conversation: ConversationDetail }
+  | { type: 'phase'; request_id: string; conversation_id: string; phase: string }
+  | { type: 'delta'; request_id: string; conversation_id: string; text: string };
+export interface GenerationView { requestId: string; windowKey: string; conversationId?: string; text: string; phase: string; stopping: boolean }
 export interface ConversationPage { items: ConversationSummary[]; total: number; has_more: boolean }
 export interface TrashItem { kind: 'kb' | 'conversation'; id: string; title: string; knowledge_base_name: string; knowledge_base_id: string; deleted_at: string }
 export interface Outbox { kb: string; question: string; request_id: string; conversation_id?: string; web_search?: boolean; window_key?: string }

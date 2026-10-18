@@ -11,6 +11,15 @@ from miniima.cli import app
 from miniima.config import Settings, load_settings, save_settings
 
 
+def test_version_without_subcommand_does_not_create_a_data_home(tmp_path, monkeypatch):
+    from miniima import __version__
+    home = tmp_path / 'uninitialized'
+    monkeypatch.setenv('MINIIMA_HOME', str(home))
+    result = CliRunner().invoke(app, ['--version'])
+    assert result.exit_code == 0 and result.output.strip() == __version__
+    assert not home.exists()
+
+
 @pytest.mark.parametrize("option,field", [("--api-key", "api_key"), ("--embedding-api-key", "embedding_api_key")])
 @pytest.mark.parametrize("hide_key", [False, True])
 def test_key_entry_visibility_redaction_and_env_override(tmp_path, monkeypatch, option, field, hide_key):

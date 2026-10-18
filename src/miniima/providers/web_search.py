@@ -11,6 +11,16 @@ from xml.etree import ElementTree
 from miniima.errors import ProviderError
 
 
+def _parse_results(payload: bytes, engine: str) -> list[dict]:
+    if engine == 'Bing':
+        root = ElementTree.fromstring(payload)
+        return [{'url': item.findtext('link', ''), 'title': item.findtext('title', ''),
+                 'snippet': item.findtext('description', '')} for item in root.findall('./channel/item')]
+    parser = SearchResults()
+    parser.feed(payload.decode('utf-8', errors='replace'))
+    return parser.results
+
+
 def public_url(value: str) -> str | None:
     try:
         if len(value) > 4096 or any(ord(char) < 32 for char in value):
@@ -70,19 +80,39 @@ def search_web(question: str, limit: int = 5) -> list[dict]:
                 payload = response.read(1_000_001)
                 if len(payload) > 1_000_000:
                     raise ValueError('response too large')
-            if engine == 'Bing':
-                root = ElementTree.fromstring(payload)
-                results = [{'url': item.findtext('link', ''), 'title': item.findtext('title', ''),
-                            'snippet': item.findtext('description', '')} for item in root.findall('./channel/item')]
-            else:
-                parser = SearchResults()
-                parser.feed(payload.decode('utf-8', errors='replace'))
-                results = parser.results
+            results = _parse_results(payload, engine)
             matches = _snapshots(results, engine, limit)
             if matches:
                 return matches
         except Exception:
             continue
+    raise ProviderError('联网搜索暂不可用：网络超时、搜索验证或没有可用结果。请稍后重试，或关闭联网搜索后重新提问。')
+
+
+async def search_web_async(question: str, limit: int = 5) -> list[dict]:
+    """Separate credential-free client; cancellation closes the in-flight response."""
+    import httpx
+    query = question.strip()[:1000]
+    providers = [
+        ('Bing', 'https://www.bing.com/search?' + urlencode({'format': 'rss', 'q': query})),
+        ('DuckDuckGo', 'https://html.duckduckgo.com/html/?' + urlencode({'q': query})),
+    ]
+    async with httpx.AsyncClient(timeout=8, follow_redirects=True,
+        headers={'User-Agent': 'Mozilla/5.0 Miniima/0.3', 'Accept': 'application/rss+xml, text/html'}) as client:
+        for engine, url in providers:
+            try:
+                async with client.stream('GET', url) as response:
+                    response.raise_for_status()
+                    payload = bytearray()
+                    async for data in response.aiter_bytes():
+                        payload.extend(data)
+                        if len(payload) > 1_000_000:
+                            raise ValueError('response too large')
+                matches = _snapshots(_parse_results(bytes(payload), engine), engine, limit)
+                if matches:
+                    return matches
+            except Exception:
+                continue
     raise ProviderError('联网搜索暂不可用：网络超时、搜索验证或没有可用结果。请稍后重试，或关闭联网搜索后重新提问。')
 
 

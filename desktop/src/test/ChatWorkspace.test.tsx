@@ -19,6 +19,8 @@ test('reading earlier messages is preserved until return-to-latest is selected',
   element.scrollTop = 100; fireEvent.scroll(element);
   view.rerender(<ChatWorkspace {...props} conversation={{ ...conversation, updated_at: 'new' }} />);
   expect(scroll).not.toHaveBeenCalled();
+  view.rerender(<ChatWorkspace {...props} generation={{ requestId: 'stream', windowKey: 'one', text: '正在逐步生成', phase: 'generating', stopping: false }} />);
+  expect(scroll).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: '回到最新' }));
   expect(scroll).toHaveBeenCalledWith({ top: 1000 });
 });

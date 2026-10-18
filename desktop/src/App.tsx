@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { BookOpen, Plus, FileText, Search, Sparkles, Upload, Settings2, Trash2, X,
   Loader2, ChevronRight, Check, AlertCircle, Layers, Database,
-  MessageCircleMore, MessageSquare, Archive, ChevronDown, History, MoreHorizontal, PanelRightOpen, PanelRightClose, Pencil } from 'lucide-react';
-import { request, chooseFiles, confirmAction, errorMessage, handleWindowClose } from './bridge';
+  MessageCircleMore, MessageSquare, Archive, ChevronDown, History, MoreHorizontal, PanelRightOpen, PanelRightClose, Pencil, FileDown } from 'lucide-react';
+import { request, streamRequest, exportConversation, chooseFiles, confirmAction, errorMessage, handleWindowClose } from './bridge';
 import SettingsDialog from './components/SettingsDialog';
 import NewKnowledgeBaseDialog from './components/NewKnowledgeBaseDialog';
 import SourceDrawer from './components/SourceDrawer';
@@ -16,7 +16,7 @@ import { useUpdates } from './hooks/useUpdates';
 import { UpdateBanner } from './components/UpdateSection';
 import TrashView from './components/TrashView';
 import { readWorkspace, writeWorkspace, draft, draftKey } from './workspaceStorage';
-import type { Bootstrap, ConversationDetail, ConversationPage, ConversationSummary, ConversationWindow, DocumentRecord, ImportEntry, ImportResult, KnowledgeBase, Outbox, SettingsSnapshot, Source, TrashItem } from './types';
+import type { Bootstrap, ConversationDetail, ConversationPage, ConversationSummary, ConversationWindow, DocumentRecord, GenerationView, ImportEntry, ImportResult, KnowledgeBase, Outbox, SettingsSnapshot, Source, TrashItem, TurnEvent } from './types';
 
 type Tab = 'documents' | 'search' | 'ask' | 'trash';
 const date = (value: string) => value ? new Date(value).toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }) : '未记录';
@@ -57,6 +57,7 @@ export default function App() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyQuery, setHistoryQuery] = useState('');
   const historyFilter = useRef('');
+  const historySearchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [renameTarget, setRenameTarget] = useState<ConversationSummary | null>(null);
   const [renameError, setRenameError] = useState<string | null>(null);
   const [trash, setTrash] = useState<TrashItem[]>([]);
@@ -64,6 +65,10 @@ export default function App() {
   const [sourceGroup, setSourceGroup] = useState<Source[]>([]);
   const [pendingTurn, setPendingTurn] = useState<{ view: number; windowKey: string; request: Outbox } | null>(null);
   const [unconfirmed, setUnconfirmed] = useState<Outbox | null>(null);
+  const [generation, setGeneration] = useState<GenerationView | null>(null);
+  const generationRef = useRef<GenerationView | null>(null);
+  const [streamingEnabled, setStreamingEnabled] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const [source, setSource] = useState<Source | null>(null);
   const [expandedSource, setExpandedSource] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -96,6 +101,7 @@ export default function App() {
   const navigationVisible = compactNavigation && navigationOpen;
   const navigationRef = useDialog<HTMLElement>(() => setNavigationOpen(false), false, navigationTrigger.current, navigationVisible);
   const base = bases.find(kb => kb.id === selected);
+  const currentGeneration = generation && (generation.windowKey === activeWindowKey || generation.conversationId === activeId) ? generation : undefined;
   const modalOpen = (settingsOpen && !!settings) || newOpen || !!renameTarget;
   const sourceModal = !!source && overlaySource;
   busyRef.current = !!busy;
@@ -116,11 +122,7 @@ export default function App() {
     contentRef.current?.scrollTo?.({ top: 0 });
   }, [tab, selected]);
 
-  useEffect(() => {
-    if (startup) return;
-    const timer = window.setTimeout(() => { void loadHistory(); }, 200);
-    return () => window.clearTimeout(timer);
-  }, [historyQuery, startup]);
+  useEffect(() => () => clearTimeout(historySearchTimer.current), []);
 
   useEffect(() => {
     try { localStorage.setItem('miniima-sidebar-hidden', String(sidebarHidden)); } catch { /* Optional layout preference. */ }
@@ -270,6 +272,8 @@ export default function App() {
     historyFilter.current = value;
     ++historyVersion.current;
     setHistoryQuery(value); setHistory([]); setHistoryMore(false); setHistoryLoading(true);
+    clearTimeout(historySearchTimer.current);
+    historySearchTimer.current = setTimeout(() => { void loadHistory(); }, 200);
   }
 
   async function renameConversation(title: string) {
@@ -331,6 +335,7 @@ export default function App() {
       const data = await request<Bootstrap>('initialize');
       homeRef.current = data.settings.home;
       const saved = readWorkspace(data.settings.home);
+      setStreamingEnabled(saved.streamingEnabled !== false);
       setBases(data.knowledge_bases); setSettings(data.settings);
       updateClosedWindows(Array.isArray(saved.closedWindows) ? saved.closedWindows.filter(item => item
         && typeof item.key === 'string' && typeof item.kb === 'string' && typeof item.title === 'string'
@@ -484,6 +489,56 @@ export default function App() {
     } finally { setBusy(null); }
   }
 
+  function generationEvents(windowKey: string, requestId: string) {
+    let accepted = false;
+    generationRef.current = { windowKey, requestId, text: '', phase: 'searching', stopping: false };
+    setGeneration(generationRef.current);
+    return { accepted: () => accepted, onEvent: (event: TurnEvent) => {
+      const previous = generationRef.current;
+      if (!previous || previous.requestId !== event.request_id) return;
+      const next = { ...previous, conversationId: event.conversation_id };
+      if (event.type === 'started') {
+        accepted = true;
+        const detail = event.conversation;
+        updateWindows(items => items.map(item => item.key === windowKey ? { ...item, conversationId: detail.id, title: detail.title, draft: '' } : item));
+        updateClosedWindows(items => items.filter(item => item.key !== windowKey));
+        saveConversationDraft(detail.knowledge_base_id, detail.id, '');
+        writeWorkspace(homeRef.current, { outbox: null }); setUnconfirmed(null);
+        if (workspaceTab.current === 'ask' && (activeWindow.current === windowKey || activeConversation.current === detail.id)) {
+          setConversation(detail); setActiveId(detail.id);
+        }
+        void loadHistory();
+      } else if (event.type === 'delta') next.text += event.text;
+      else if (!next.stopping) next.phase = event.phase;
+      generationRef.current = next; setGeneration(next);
+    } };
+  }
+
+  function finishGeneration() { generationRef.current = null; setGeneration(null); }
+
+  async function stopGeneration() {
+    const active = generationRef.current;
+    if (!active || active.stopping) return;
+    generationRef.current = { ...active, stopping: true, phase: 'stopping' }; setGeneration(generationRef.current);
+    try { await request('conversations.cancel', { request_id: active.requestId }); }
+    catch (e) {
+      if (generationRef.current?.requestId === active.requestId) {
+        generationRef.current = { ...generationRef.current, stopping: false }; setGeneration(generationRef.current);
+      }
+      setError(errorMessage(e));
+    }
+  }
+
+  async function exportCurrentConversation() {
+    if (!conversation || currentGeneration || exporting || conversationLoading || conversation.messages.some(item => item.status === 'pending')) return;
+    setExporting(true); setError(null);
+    try {
+      const result = await exportConversation(conversation.id);
+      if (result.saved) setMessage(`对话已导出：${result.filename}`);
+    } catch (e) { setError(errorMessage(e)); }
+    finally { setExporting(false); }
+  }
+
   async function runQuery(event?: React.FormEvent, suggestion?: string, requestedMode?: 'search' | 'ask') {
     event?.preventDefault(); const text = (suggestion || query).trim();
     if (!text || !selected || busy || conversationLoading) return;
@@ -498,12 +553,13 @@ export default function App() {
     if (mode === 'ask') {
       setPendingTurn({ view: version, windowKey, request: outgoing }); writeWorkspace(homeRef.current, { outbox: outgoing });
     }
+    const progress = mode === 'ask' ? generationEvents(windowKey, outgoing.request_id) : null;
     try {
       if (mode === 'search') {
         const result = await request<Source[]>('search', { kb, question: text, top_k: 5 });
         if (selection.current === kb && viewVersion.current === version) setMatches(result);
       } else {
-        const result = await request<ConversationDetail>('conversations.send', { ...outgoing });
+        const result = await streamRequest('conversations.send', { ...outgoing, stream: streamingEnabled }, progress!.onEvent);
         writeWorkspace(homeRef.current, { outbox: null }); setUnconfirmed(null);
         updateWindows(items => items.map(item => item.key === windowKey ? { ...item, conversationId: result.id, title: result.title, draft: '' } : item));
         updateClosedWindows(items => items.filter(item => item.key !== windowKey));
@@ -517,24 +573,37 @@ export default function App() {
         await loadHistory();
       }
     } catch (e) {
-      if (mode === 'ask') {
+      if (mode === 'ask' && !progress?.accepted()) {
         setUnconfirmed(outgoing);
         updateWindows(items => items.map(item => item.key === windowKey ? { ...item, draft: text } : item));
       }
-      if (selection.current === kb && viewVersion.current === version) { setError(errorMessage(e)); if (mode === 'ask') setQuery(text); }
-    } finally { setBusy(null); setPendingTurn(null); }
+      if (selection.current === kb && viewVersion.current === version) {
+        setError(errorMessage(e));
+        if (mode === 'ask' && !progress?.accepted()) setQuery(text);
+      }
+      if (progress?.accepted()) {
+        try {
+          const detail = await request<ConversationDetail>('conversations.get', { request_id: outgoing.request_id });
+          if (activeConversation.current === detail.id) setConversation(detail);
+        } catch { /* The persisted question is recovered on restart. */ }
+      }
+    } finally { setBusy(null); setPendingTurn(null); if (mode === 'ask') finishGeneration(); }
   }
 
   async function retryQuestion(requestId: string) {
     if (busy) return;
     const version = viewVersion.current;
     setBusy('ask'); setError(null);
+    const windowKey = activeWindow.current;
+    const original = conversation?.messages.find(item => item.request_id === requestId);
+    if (original) setPendingTurn({ view: version, windowKey, request: { request_id: requestId, kb: selected, question: original.content } });
+    const progress = generationEvents(windowKey, requestId);
     try {
-      const detail = await request<ConversationDetail>('conversations.retry', { request_id: requestId });
-      if (viewVersion.current === version || activeConversation.current === detail.id) setConversation(detail);
+      const detail = await streamRequest('conversations.retry', { request_id: requestId, stream: streamingEnabled }, progress.onEvent);
+      if ((activeWindow.current === windowKey && viewVersion.current === version) || activeConversation.current === detail.id) setConversation(detail);
       await loadHistory();
     } catch (e) { if (viewVersion.current === version) setError(errorMessage(e)); }
-    finally { setBusy(null); }
+    finally { setBusy(null); setPendingTurn(null); finishGeneration(); }
   }
 
   async function deleteConversation(item: ConversationSummary) {
@@ -664,6 +733,8 @@ export default function App() {
       <div className="editor-pane" inert={expandedSource}>
       <header className="workspace-header">
         <h1 className="sr-only">{base?.name || '构建你的知识空间'}</h1>
+        {tab === 'ask' && <button className="text-button export-conversation" disabled={!conversation?.messages.length || !!currentGeneration || exporting || conversationLoading || conversation.messages.some(item => item.status === 'pending')}
+          onClick={() => void exportCurrentConversation()}><FileDown size={17} />{exporting ? '正在导出…' : '导出对话'}</button>}
         <ConversationTabs windows={windows} activeKey={tab === 'ask' ? activeWindowKey : ''}
           pendingKey={pendingTurn?.windowKey} disabled={startup || (!!busy && busy !== 'ask')} onSwitch={switchWindow} onClose={closeWindow} onNew={newQuestion}
           closedDrafts={closedWindows.filter(window => bases.some(kb => kb.id === window.kb)).length} onRestoreDraft={restoreDraft} />
@@ -786,6 +857,7 @@ export default function App() {
               </section>}
 
               {tab === 'ask' && <ChatWorkspace conversation={conversation} loading={conversationLoading}
+                generation={currentGeneration} onStop={() => void stopGeneration()}
                 pendingQuestion={pendingTurn?.windowKey === activeWindowKey ? pendingTurn.request.question : null}
                 baseName={base.name} query={query} onQuery={changeQuery} busy={!!busy} webSearch={webSearch} onWebSearch={changeWebSearch}
                 questionRef={questionRef} answerRef={answerRef} onSend={runQuery} onImport={importDocuments}
@@ -810,7 +882,9 @@ export default function App() {
     <UpdateBanner updates={updates} disabled={!!busy || startup || modalOpen} onDetails={() => {
       modalTrigger.current = document.activeElement as HTMLElement; setSettingsOpen(true);
     }} />
-    {settingsOpen && settings && <SettingsDialog returnFocusTo={modalTrigger.current} snapshot={settings} updates={updates} onClose={() => setSettingsOpen(false)} onSaved={setSettings} onBusy={state => setBusy(state ? 'settings' : null)} />}
+    {settingsOpen && settings && <SettingsDialog returnFocusTo={modalTrigger.current} snapshot={settings} updates={updates}
+      streamingEnabled={streamingEnabled} onStreamingChange={enabled => { setStreamingEnabled(enabled); writeWorkspace(homeRef.current, { streamingEnabled: enabled }); }}
+      onClose={() => setSettingsOpen(false)} onSaved={setSettings} onBusy={state => setBusy(state ? 'settings' : null)} />}
     {newOpen && <NewKnowledgeBaseDialog returnFocusTo={modalTrigger.current} name={newName} busy={!!busy} error={error} onName={setNewName} onClose={() => setNewOpen(false)} onSubmit={createBase} />}
     {renameTarget && <RenameConversationDialog title={renameTarget.title} busy={busy === 'rename'} error={renameError} returnFocusTo={modalTrigger.current}
       onClose={() => setRenameTarget(null)} onSubmit={title => void renameConversation(title)} />}
